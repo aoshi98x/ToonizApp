@@ -744,6 +744,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -775,15 +781,21 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_clear_current_frame(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_rust_core_fn_method_animationengine_delete_layer(`ptr`: Pointer,`layerId`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_rust_core_fn_method_animationengine_end_stroke(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_erase_at(`ptr`: Pointer,`x`: Float,`y`: Float,`radius`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_rust_core_fn_method_animationengine_extend_exposure(`ptr`: Pointer,`layerId`: Long,`frameIndex`: Int,`newExposure`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_get_active_layer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     fun uniffi_rust_core_fn_method_animationengine_get_current_frame(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     fun uniffi_rust_core_fn_method_animationengine_get_layers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_rust_core_fn_method_animationengine_get_onion_strokes(`ptr`: Pointer,`pastCount`: Int,`futureCount`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_rust_core_fn_method_animationengine_get_strokes_for_frame(`ptr`: Pointer,`frameIndex`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -915,15 +927,21 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_clear_current_frame(
     ): Short
+    fun uniffi_rust_core_checksum_method_animationengine_delete_layer(
+    ): Short
     fun uniffi_rust_core_checksum_method_animationengine_end_stroke(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_erase_at(
+    ): Short
+    fun uniffi_rust_core_checksum_method_animationengine_extend_exposure(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_active_layer(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_current_frame(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_layers(
+    ): Short
+    fun uniffi_rust_core_checksum_method_animationengine_get_onion_strokes(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_strokes_for_frame(
     ): Short
@@ -965,10 +983,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_rust_core_checksum_method_animationengine_clear_current_frame() != 45228.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_core_checksum_method_animationengine_delete_layer() != 34449.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_core_checksum_method_animationengine_end_stroke() != 31405.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_erase_at() != 64717.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_core_checksum_method_animationengine_extend_exposure() != 33415.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_active_layer() != 13902.toShort()) {
@@ -978,6 +1002,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_layers() != 54930.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_core_checksum_method_animationengine_get_onion_strokes() != 21190.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_strokes_for_frame() != 30608.toShort()) {
@@ -1114,6 +1141,29 @@ public object FfiConverterFloat: FfiConverter<Float, Float> {
 
     override fun write(value: Float, buf: ByteBuffer) {
         buf.putFloat(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1UL
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -1344,15 +1394,21 @@ public interface AnimationEngineInterface {
     
     fun `clearCurrentFrame`()
     
+    fun `deleteLayer`(`layerId`: kotlin.ULong)
+    
     fun `endStroke`()
     
     fun `eraseAt`(`x`: kotlin.Float, `y`: kotlin.Float, `radius`: kotlin.Float)
+    
+    fun `extendExposure`(`layerId`: kotlin.ULong, `frameIndex`: kotlin.UInt, `newExposure`: kotlin.UInt)
     
     fun `getActiveLayer`(): kotlin.ULong
     
     fun `getCurrentFrame`(): kotlin.UInt
     
     fun `getLayers`(): List<Layer>
+    
+    fun `getOnionStrokes`(`pastCount`: kotlin.UInt, `futureCount`: kotlin.UInt): List<OnionStroke>
     
     fun `getStrokesForFrame`(`frameIndex`: kotlin.UInt): List<Stroke>
     
@@ -1491,6 +1547,17 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     
     
 
+    override fun `deleteLayer`(`layerId`: kotlin.ULong)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_delete_layer(
+        it, FfiConverterULong.lower(`layerId`),_status)
+}
+    }
+    
+    
+
     override fun `endStroke`()
         = 
     callWithPointer {
@@ -1508,6 +1575,17 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_erase_at(
         it, FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),FfiConverterFloat.lower(`radius`),_status)
+}
+    }
+    
+    
+
+    override fun `extendExposure`(`layerId`: kotlin.ULong, `frameIndex`: kotlin.UInt, `newExposure`: kotlin.UInt)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_extend_exposure(
+        it, FfiConverterULong.lower(`layerId`),FfiConverterUInt.lower(`frameIndex`),FfiConverterUInt.lower(`newExposure`),_status)
 }
     }
     
@@ -1543,6 +1621,18 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_get_layers(
         it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `getOnionStrokes`(`pastCount`: kotlin.UInt, `futureCount`: kotlin.UInt): List<OnionStroke> {
+            return FfiConverterSequenceTypeOnionStroke.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_get_onion_strokes(
+        it, FfiConverterUInt.lower(`pastCount`),FfiConverterUInt.lower(`futureCount`),_status)
 }
     }
     )
@@ -1687,10 +1777,47 @@ public object FfiConverterTypeLayer: FfiConverterRustBuffer<Layer> {
 
 
 
+data class OnionStroke (
+    var `stroke`: Stroke, 
+    var `tintRed`: kotlin.Boolean, 
+    var `alpha`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOnionStroke: FfiConverterRustBuffer<OnionStroke> {
+    override fun read(buf: ByteBuffer): OnionStroke {
+        return OnionStroke(
+            FfiConverterTypeStroke.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: OnionStroke) = (
+            FfiConverterTypeStroke.allocationSize(value.`stroke`) +
+            FfiConverterBoolean.allocationSize(value.`tintRed`) +
+            FfiConverterFloat.allocationSize(value.`alpha`)
+    )
+
+    override fun write(value: OnionStroke, buf: ByteBuffer) {
+            FfiConverterTypeStroke.write(value.`stroke`, buf)
+            FfiConverterBoolean.write(value.`tintRed`, buf)
+            FfiConverterFloat.write(value.`alpha`, buf)
+    }
+}
+
+
+
 data class Stroke (
     var `id`: kotlin.ULong, 
     var `layerId`: kotlin.ULong, 
     var `frameIndex`: kotlin.UInt, 
+    var `exposure`: kotlin.UInt, 
     var `toolType`: ToolType, 
     var `color`: kotlin.UInt, 
     var `width`: kotlin.Float, 
@@ -1709,6 +1836,7 @@ public object FfiConverterTypeStroke: FfiConverterRustBuffer<Stroke> {
             FfiConverterULong.read(buf),
             FfiConverterULong.read(buf),
             FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
             FfiConverterTypeToolType.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterFloat.read(buf),
@@ -1720,6 +1848,7 @@ public object FfiConverterTypeStroke: FfiConverterRustBuffer<Stroke> {
             FfiConverterULong.allocationSize(value.`id`) +
             FfiConverterULong.allocationSize(value.`layerId`) +
             FfiConverterUInt.allocationSize(value.`frameIndex`) +
+            FfiConverterUInt.allocationSize(value.`exposure`) +
             FfiConverterTypeToolType.allocationSize(value.`toolType`) +
             FfiConverterUInt.allocationSize(value.`color`) +
             FfiConverterFloat.allocationSize(value.`width`) +
@@ -1730,6 +1859,7 @@ public object FfiConverterTypeStroke: FfiConverterRustBuffer<Stroke> {
             FfiConverterULong.write(value.`id`, buf)
             FfiConverterULong.write(value.`layerId`, buf)
             FfiConverterUInt.write(value.`frameIndex`, buf)
+            FfiConverterUInt.write(value.`exposure`, buf)
             FfiConverterTypeToolType.write(value.`toolType`, buf)
             FfiConverterUInt.write(value.`color`, buf)
             FfiConverterFloat.write(value.`width`, buf)
@@ -1831,6 +1961,34 @@ public object FfiConverterSequenceTypeLayer: FfiConverterRustBuffer<List<Layer>>
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeLayer.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeOnionStroke: FfiConverterRustBuffer<List<OnionStroke>> {
+    override fun read(buf: ByteBuffer): List<OnionStroke> {
+        val len = buf.getInt()
+        return List<OnionStroke>(len) {
+            FfiConverterTypeOnionStroke.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<OnionStroke>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeOnionStroke.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<OnionStroke>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeOnionStroke.write(it, buf)
         }
     }
 }

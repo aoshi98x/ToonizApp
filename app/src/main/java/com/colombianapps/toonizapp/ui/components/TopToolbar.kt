@@ -47,6 +47,11 @@ fun TopToolbar(viewModel: StudioViewModel) {
 
             HorizontalDivider(modifier = Modifier.height(24.dp).width(1.dp))
 
+            // Onion Skin Menu
+            OnionSkinMenu(viewModel = viewModel)
+
+            HorizontalDivider(modifier = Modifier.height(24.dp).width(1.dp))
+
             // Undo Button
             IconButton(onClick = { viewModel.undo() }) {
                 Icon(Icons.Default.Undo, contentDescription = "Deshacer")

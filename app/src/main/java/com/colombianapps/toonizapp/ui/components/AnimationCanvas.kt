@@ -25,8 +25,8 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     viewModel.updateTransform(viewModel.scale * zoom, pan.x, pan.y)
                 }
             }
-            .pointerInput(viewModel.selectedTool, viewModel.scale, viewModel.offsetX, viewModel.offsetY, viewModel.isPlaying) {
-                if (viewModel.isPlaying) return@pointerInput
+            .pointerInput(viewModel.selectedTool, viewModel.scale, viewModel.offsetX, viewModel.offsetY, viewModel.isPlaying, viewModel.activeLayerId) {
+                if (viewModel.isPlaying || viewModel.activeLayerId == 0L) return@pointerInput
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
@@ -57,13 +57,37 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
 
         drawRect(color = Color(0xFFFAFAFA))
 
-        val strokes = viewModel.getStrokes()
-
         drawContext.transform.apply {
             scale(viewModel.scale, viewModel.scale, Offset(0f, 0f))
             translate(viewModel.offsetX / viewModel.scale, viewModel.offsetY / viewModel.scale)
         }
 
+        // 1. Render Onion Skins (Papel Cebolla)
+        val onionStrokes = viewModel.getOnionStrokes()
+        for (onion in onionStrokes) {
+            if (onion.stroke.points.isEmpty()) continue
+            val path = Path().apply {
+                val first = onion.stroke.points[0]
+                moveTo(first.x, first.y)
+                for (i in 1 until onion.stroke.points.size) {
+                    val p = onion.stroke.points[i]
+                    lineTo(p.x, p.y)
+                }
+            }
+            val onionColor = if (onion.tintRed) Color.Red.copy(alpha = onion.alpha) else Color.Green.copy(alpha = onion.alpha)
+            drawPath(
+                path = path,
+                color = onionColor,
+                style = Stroke(
+                    width = onion.stroke.width,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+        }
+
+        // 2. Render Current Frame Strokes
+        val strokes = viewModel.getStrokes()
         for (stroke in strokes) {
             if (stroke.points.isEmpty()) continue
             val path = Path().apply {
@@ -90,7 +114,7 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
         }
 
         // Draw modern circular brush/eraser cursor
-        if (viewModel.isPointerDown && viewModel.currentScreenPosition != null) {
+        if (viewModel.isPointerDown && viewModel.currentScreenPosition != null && viewModel.activeLayerId != 0L) {
             val cursorWorldX = (viewModel.currentScreenPosition!!.x - viewModel.offsetX) / viewModel.scale
             val cursorWorldY = (viewModel.currentScreenPosition!!.y - viewModel.offsetY) / viewModel.scale
             val radius = if (viewModel.selectedTool == ToolType.PENCIL) viewModel.strokeWidth / 2f else viewModel.strokeWidth * 2.5f

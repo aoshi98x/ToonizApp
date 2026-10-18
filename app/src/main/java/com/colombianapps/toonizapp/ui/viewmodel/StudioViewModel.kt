@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.rust_core.AnimationEngine
+import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
 
@@ -41,13 +42,19 @@ class StudioViewModel : ViewModel() {
     var currentFrame by mutableStateOf(1)
         private set
 
-    var activeLayerId by mutableStateOf(1L)
+    var activeLayerId by mutableStateOf(0L)
         private set
 
     var layers by mutableStateOf(engine.getLayers())
         private set
 
     var isPlaying by mutableStateOf(false)
+        private set
+
+    var onionSkinPast by mutableStateOf(1)
+        private set
+
+    var onionSkinFuture by mutableStateOf(0)
         private set
 
     var currentScreenPosition by mutableStateOf<Offset?>(null)
@@ -85,17 +92,48 @@ class StudioViewModel : ViewModel() {
     fun setActiveLayer(layerId: Long) {
         activeLayerId = layerId
         engine.setActiveLayer(layerId.toULong())
+        strokesVersion++
     }
 
     fun addLayer() {
-        val newName = "Capa ${layers.size + 1}"
+        val newName = "Nivel ${layers.size + 1}"
         val newId = engine.addLayer(newName)
         layers = engine.getLayers()
         setActiveLayer(newId.toLong())
         strokesVersion++
     }
 
+    fun deleteLayer(layerId: Long) {
+        engine.deleteLayer(layerId.toULong())
+        layers = engine.getLayers()
+        activeLayerId = layers.firstOrNull()?.id?.toLong() ?: 0L
+        engine.setActiveLayer(activeLayerId.toULong())
+        strokesVersion++
+    }
+
+    fun extendExposure(frameIndex: Int, additionalFrames: Int) {
+        if (activeLayerId == 0L) return
+        val currentStrokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), frameIndex.toUInt())
+        if (currentStrokes.isNotEmpty()) {
+            val currentExp = currentStrokes.first().exposure.toInt()
+            val newExp = (currentExp + additionalFrames).coerceIn(1, 24 - frameIndex + 1)
+            engine.extendExposure(activeLayerId.toULong(), frameIndex.toUInt(), newExp.toUInt())
+            strokesVersion++
+        }
+    }
+
+    fun updateOnionSkinPast(count: Int) {
+        onionSkinPast = count.coerceIn(0, 3)
+        strokesVersion++
+    }
+
+    fun updateOnionSkinFuture(count: Int) {
+        onionSkinFuture = count.coerceIn(0, 3)
+        strokesVersion++
+    }
+
     fun togglePlayback() {
+        if (layers.isEmpty()) return
         isPlaying = !isPlaying
         if (isPlaying) {
             playbackJob = viewModelScope.launch {
@@ -111,7 +149,7 @@ class StudioViewModel : ViewModel() {
     }
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
-        if (isPlaying) return
+        if (isPlaying || activeLayerId == 0L) return
         val colorInt = android.graphics.Color.argb(
             (currentColor.alpha * 255).toInt(),
             (currentColor.red * 255).toInt(),
@@ -127,7 +165,7 @@ class StudioViewModel : ViewModel() {
     }
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
-        if (isPlaying) return
+        if (isPlaying || activeLayerId == 0L) return
         if (selectedTool == ToolType.PENCIL) {
             engine.addPoint(worldX, worldY, pressure)
         } else {
@@ -137,7 +175,7 @@ class StudioViewModel : ViewModel() {
     }
 
     fun endStroke() {
-        if (isPlaying) return
+        if (isPlaying || activeLayerId == 0L) return
         if (selectedTool == ToolType.PENCIL) {
             engine.endStroke()
         }
@@ -145,17 +183,25 @@ class StudioViewModel : ViewModel() {
     }
 
     fun undo() {
+        if (activeLayerId == 0L) return
         engine.undo()
         strokesVersion++
     }
 
     fun clearCurrentFrame() {
+        if (activeLayerId == 0L) return
         engine.clearCurrentFrame()
         strokesVersion++
     }
 
     fun getStrokes(): List<Stroke> {
+        if (activeLayerId == 0L && layers.isEmpty()) return emptyList()
         return engine.getStrokesForFrame(currentFrame.toUInt())
+    }
+
+    fun getOnionStrokes(): List<OnionStroke> {
+        if (activeLayerId == 0L) return emptyList()
+        return engine.getOnionStrokes(onionSkinPast.toUInt(), onionSkinFuture.toUInt())
     }
 
     fun setPointerState(down: Boolean, pos: Offset?) {
