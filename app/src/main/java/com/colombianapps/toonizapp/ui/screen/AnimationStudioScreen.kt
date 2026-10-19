@@ -13,7 +13,7 @@ import com.colombianapps.toonizapp.ui.components.TopToolbar
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 
 @Composable
-fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel()) {
+fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Canvas
         AnimationCanvas(viewModel = viewModel)
@@ -25,7 +25,7 @@ fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel()) {
                 .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            TopToolbar(viewModel = viewModel)
+            TopToolbar(viewModel = viewModel, onBackClick = onBackClick)
         }
 
         // Right Sidebar

@@ -1,22 +1,33 @@
 package com.colombianapps.toonizapp.ui.viewmodel
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.colombianapps.toonizapp.data.model.AnimationProject
+import com.colombianapps.toonizapp.data.repository.ProjectRepository
 import uniffi.rust_core.AnimationEngine
 import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
 
-class StudioViewModel : ViewModel() {
+class StudioViewModel(application: Application) : AndroidViewModel(application) {
+    val projectRepository = ProjectRepository(application)
     val engine = AnimationEngine()
+    val drawingManager = DrawingManager()
+
+    var currentProject by mutableStateOf<AnimationProject?>(null)
+        private set
+
+    var hasUnsavedChanges by mutableStateOf(false)
+        private set
 
     var selectedTool by mutableStateOf(ToolType.PENCIL)
         private set
@@ -24,8 +35,22 @@ class StudioViewModel : ViewModel() {
     var currentColor by mutableStateOf(Color.Black)
         private set
 
+    var toolHue by mutableStateOf(0f)
+        private set
+
+    var toolSaturation by mutableStateOf(0f)
+        private set
+
+    var toolBrightness by mutableStateOf(0f)
+        private set
+
     var strokeWidth by mutableStateOf(8f)
         private set
+
+    var strokeHardness by mutableStateOf(0.5f)
+        private set
+
+    var isColorPickerOpen by mutableStateOf(false)
 
     var scale by mutableStateOf(1f)
         private set
@@ -63,7 +88,39 @@ class StudioViewModel : ViewModel() {
     var isPointerDown by mutableStateOf(false)
         private set
 
+    private var lastX = 0f
+    private var lastY = 0f
+
     private var playbackJob: Job? = null
+    private var autoSaveJob: Job? = null
+
+    init {
+        updateColorHsb(0f, 0f, 0f)
+        startAutoSave()
+    }
+
+    private fun startAutoSave() {
+        autoSaveJob = viewModelScope.launch {
+            while (true) {
+                delay(180_000L) // 3 minutes auto-save
+                if (hasUnsavedChanges && currentProject != null) {
+                    saveProject()
+                }
+            }
+        }
+    }
+
+    fun loadProject(project: AnimationProject) {
+        currentProject = project
+        hasUnsavedChanges = false
+    }
+
+    fun saveProject() {
+        currentProject?.let {
+            projectRepository.saveProject(it)
+            hasUnsavedChanges = false
+        }
+    }
 
     fun selectTool(tool: ToolType) {
         selectedTool = tool
@@ -71,10 +128,41 @@ class StudioViewModel : ViewModel() {
 
     fun selectColor(color: Color) {
         currentColor = color
+        hasUnsavedChanges = true
+    }
+
+    fun updateColorHsb(h: Float, s: Float, b: Float) {
+        toolHue = h
+        toolSaturation = s
+        toolBrightness = b
+        currentColor = Color.hsv(h, s, b)
+        hasUnsavedChanges = true
     }
 
     fun updateStrokeWidth(width: Float) {
-        strokeWidth = width
+        strokeWidth = width.coerceIn(1f, 500f)
+    }
+
+    fun updateStrokeHardness(hardness: Float) {
+        strokeHardness = hardness.coerceIn(0f, 1f)
+    }
+
+    fun setHue(hue: Float) {
+        toolHue = hue.coerceIn(0f, 360f)
+        currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        hasUnsavedChanges = true
+    }
+
+    fun setSaturation(sat: Float) {
+        toolSaturation = sat.coerceIn(0f, 1f)
+        currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        hasUnsavedChanges = true
+    }
+
+    fun setBrightness(bri: Float) {
+        toolBrightness = bri.coerceIn(0f, 1f)
+        currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        hasUnsavedChanges = true
     }
 
     fun updateTransform(newScale: Float, newPanX: Float, newPanY: Float) {
@@ -100,6 +188,7 @@ class StudioViewModel : ViewModel() {
         val newId = engine.addLayer(newName)
         layers = engine.getLayers()
         setActiveLayer(newId.toLong())
+        hasUnsavedChanges = true
         strokesVersion++
     }
 
@@ -108,18 +197,15 @@ class StudioViewModel : ViewModel() {
         layers = engine.getLayers()
         activeLayerId = layers.firstOrNull()?.id?.toLong() ?: 0L
         engine.setActiveLayer(activeLayerId.toULong())
+        hasUnsavedChanges = true
         strokesVersion++
     }
 
-    fun extendExposure(frameIndex: Int, additionalFrames: Int) {
+    fun adjustExposure(delta: Int) {
         if (activeLayerId == 0L) return
-        val currentStrokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), frameIndex.toUInt())
-        if (currentStrokes.isNotEmpty()) {
-            val currentExp = currentStrokes.first().exposure.toInt()
-            val newExp = (currentExp + additionalFrames).coerceIn(1, 24 - frameIndex + 1)
-            engine.extendExposure(activeLayerId.toULong(), frameIndex.toUInt(), newExp.toUInt())
-            strokesVersion++
-        }
+        engine.shiftExposure(activeLayerId.toULong(), currentFrame.toUInt(), delta)
+        hasUnsavedChanges = true
+        strokesVersion++
     }
 
     fun updateOnionSkinPast(count: Int) {
@@ -150,6 +236,8 @@ class StudioViewModel : ViewModel() {
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
+        lastX = worldX
+        lastY = worldY
         val colorInt = android.graphics.Color.argb(
             (currentColor.alpha * 255).toInt(),
             (currentColor.red * 255).toInt(),
@@ -158,19 +246,35 @@ class StudioViewModel : ViewModel() {
         )
         if (selectedTool == ToolType.PENCIL) {
             engine.startStroke(worldX, worldY, pressure, selectedTool, colorInt.toUInt(), strokeWidth)
+            drawingManager.drawLine(activeLayerId, currentFrame, worldX, worldY, worldX, worldY, colorInt, strokeWidth, selectedTool, strokeHardness)
         } else {
-            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f)
+            val isSoft = selectedTool == ToolType.SOFT_ERASER
+            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
+            drawingManager.drawLine(activeLayerId, currentFrame, worldX, worldY, worldX, worldY, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
         }
+        hasUnsavedChanges = true
         strokesVersion++
     }
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
+        val colorInt = android.graphics.Color.argb(
+            (currentColor.alpha * 255).toInt(),
+            (currentColor.red * 255).toInt(),
+            (currentColor.green * 255).toInt(),
+            (currentColor.blue * 255).toInt()
+        )
         if (selectedTool == ToolType.PENCIL) {
             engine.addPoint(worldX, worldY, pressure)
+            drawingManager.drawLine(activeLayerId, currentFrame, lastX, lastY, worldX, worldY, colorInt, strokeWidth, selectedTool, strokeHardness)
         } else {
-            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f)
+            val isSoft = selectedTool == ToolType.SOFT_ERASER
+            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
+            drawingManager.drawLine(activeLayerId, currentFrame, lastX, lastY, worldX, worldY, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
         }
+        lastX = worldX
+        lastY = worldY
+        hasUnsavedChanges = true
         strokesVersion++
     }
 
@@ -185,12 +289,16 @@ class StudioViewModel : ViewModel() {
     fun undo() {
         if (activeLayerId == 0L) return
         engine.undo()
+        drawingManager.clear(activeLayerId, currentFrame)
+        hasUnsavedChanges = true
         strokesVersion++
     }
 
     fun clearCurrentFrame() {
         if (activeLayerId == 0L) return
         engine.clearCurrentFrame()
+        drawingManager.clear(activeLayerId, currentFrame)
+        hasUnsavedChanges = true
         strokesVersion++
     }
 

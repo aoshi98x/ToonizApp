@@ -785,9 +785,7 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_end_stroke(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_rust_core_fn_method_animationengine_erase_at(`ptr`: Pointer,`x`: Float,`y`: Float,`radius`: Float,uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
-    fun uniffi_rust_core_fn_method_animationengine_extend_exposure(`ptr`: Pointer,`layerId`: Long,`frameIndex`: Int,`newExposure`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_rust_core_fn_method_animationengine_erase_at(`ptr`: Pointer,`x`: Float,`y`: Float,`radius`: Float,`hardness`: Float,`isSoft`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_get_active_layer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -804,6 +802,8 @@ internal interface UniffiLib : Library {
     fun uniffi_rust_core_fn_method_animationengine_set_active_layer(`ptr`: Pointer,`layerId`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_set_current_frame(`ptr`: Pointer,`frame`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_rust_core_fn_method_animationengine_shift_exposure(`ptr`: Pointer,`layerId`: Long,`targetFrame`: Int,`delta`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_rust_core_fn_method_animationengine_start_stroke(`ptr`: Pointer,`x`: Float,`y`: Float,`pressure`: Float,`toolType`: RustBuffer.ByValue,`color`: Int,`width`: Float,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -933,8 +933,6 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_erase_at(
     ): Short
-    fun uniffi_rust_core_checksum_method_animationengine_extend_exposure(
-    ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_active_layer(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_current_frame(
@@ -950,6 +948,8 @@ internal interface UniffiLib : Library {
     fun uniffi_rust_core_checksum_method_animationengine_set_active_layer(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_set_current_frame(
+    ): Short
+    fun uniffi_rust_core_checksum_method_animationengine_shift_exposure(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_start_stroke(
     ): Short
@@ -989,10 +989,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_rust_core_checksum_method_animationengine_end_stroke() != 31405.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_core_checksum_method_animationengine_erase_at() != 64717.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_rust_core_checksum_method_animationengine_extend_exposure() != 33415.toShort()) {
+    if (lib.uniffi_rust_core_checksum_method_animationengine_erase_at() != 45359.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_active_layer() != 13902.toShort()) {
@@ -1017,6 +1014,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_set_current_frame() != 19849.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_core_checksum_method_animationengine_shift_exposure() != 13875.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_start_stroke() != 11713.toShort()) {
@@ -1095,6 +1095,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
     }
 }
 
@@ -1398,9 +1421,7 @@ public interface AnimationEngineInterface {
     
     fun `endStroke`()
     
-    fun `eraseAt`(`x`: kotlin.Float, `y`: kotlin.Float, `radius`: kotlin.Float)
-    
-    fun `extendExposure`(`layerId`: kotlin.ULong, `frameIndex`: kotlin.UInt, `newExposure`: kotlin.UInt)
+    fun `eraseAt`(`x`: kotlin.Float, `y`: kotlin.Float, `radius`: kotlin.Float, `hardness`: kotlin.Float, `isSoft`: kotlin.Boolean)
     
     fun `getActiveLayer`(): kotlin.ULong
     
@@ -1417,6 +1438,8 @@ public interface AnimationEngineInterface {
     fun `setActiveLayer`(`layerId`: kotlin.ULong)
     
     fun `setCurrentFrame`(`frame`: kotlin.UInt)
+    
+    fun `shiftExposure`(`layerId`: kotlin.ULong, `targetFrame`: kotlin.UInt, `delta`: kotlin.Int)
     
     fun `startStroke`(`x`: kotlin.Float, `y`: kotlin.Float, `pressure`: kotlin.Float, `toolType`: ToolType, `color`: kotlin.UInt, `width`: kotlin.Float)
     
@@ -1569,23 +1592,12 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     
     
 
-    override fun `eraseAt`(`x`: kotlin.Float, `y`: kotlin.Float, `radius`: kotlin.Float)
+    override fun `eraseAt`(`x`: kotlin.Float, `y`: kotlin.Float, `radius`: kotlin.Float, `hardness`: kotlin.Float, `isSoft`: kotlin.Boolean)
         = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_erase_at(
-        it, FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),FfiConverterFloat.lower(`radius`),_status)
-}
-    }
-    
-    
-
-    override fun `extendExposure`(`layerId`: kotlin.ULong, `frameIndex`: kotlin.UInt, `newExposure`: kotlin.UInt)
-        = 
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_extend_exposure(
-        it, FfiConverterULong.lower(`layerId`),FfiConverterUInt.lower(`frameIndex`),FfiConverterUInt.lower(`newExposure`),_status)
+        it, FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),FfiConverterFloat.lower(`radius`),FfiConverterFloat.lower(`hardness`),FfiConverterBoolean.lower(`isSoft`),_status)
 }
     }
     
@@ -1680,6 +1692,17 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_set_current_frame(
         it, FfiConverterUInt.lower(`frame`),_status)
+}
+    }
+    
+    
+
+    override fun `shiftExposure`(`layerId`: kotlin.ULong, `targetFrame`: kotlin.UInt, `delta`: kotlin.Int)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_shift_exposure(
+        it, FfiConverterULong.lower(`layerId`),FfiConverterUInt.lower(`targetFrame`),FfiConverterInt.lower(`delta`),_status)
 }
     }
     
@@ -1913,7 +1936,8 @@ public object FfiConverterTypeStylusPoint: FfiConverterRustBuffer<StylusPoint> {
 enum class ToolType {
     
     PENCIL,
-    ERASER;
+    HARD_ERASER,
+    SOFT_ERASER;
     companion object
 }
 

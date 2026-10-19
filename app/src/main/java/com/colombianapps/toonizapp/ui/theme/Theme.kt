@@ -1,42 +1,30 @@
 package com.colombianapps.toonizapp.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = StudioPrimary,
-    secondary = StudioSecondary,
-    surface = StudioTimelineBg
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = StudioPrimary,
-    secondary = StudioSecondary,
-    surface = StudioSurface,
-    surfaceVariant = StudioSurfaceVariant
+private val ClipStudioDarkColorScheme = darkColorScheme(
+    primary = ClipBrightCyan,
+    onPrimary = ClipDarkSlate,
+    primaryContainer = ClipVibrantTeal,
+    onPrimaryContainer = Color.White,
+    secondary = ClipDeepTeal,
+    onSecondary = Color.White,
+    surface = ClipDarkSlate,
+    onSurface = Color.White,
+    surfaceVariant = ClipDeepTeal,
+    onSurfaceVariant = Color.LightGray
 )
 
 @Composable
 fun ToonizAppTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = ClipStudioDarkColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

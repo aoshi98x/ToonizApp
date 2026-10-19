@@ -21,6 +21,9 @@ import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 
 @Composable
 fun TimelineView(viewModel: StudioViewModel) {
+    val ignoredVersion = viewModel.strokesVersion
+    if (ignoredVersion < -1) return
+
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
@@ -40,21 +43,22 @@ fun TimelineView(viewModel: StudioViewModel) {
                 TextButton(onClick = { showDeleteDialog = false }) {
                     Text("Cancelar")
                 }
-            }
+            },
+            shape = RoundedCornerShape(4.dp)
         )
     }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(20.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(4.dp),
         tonalElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = Color(0xFF1F9998) // #1F9998 background for timeline panel
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Playback & Level Controls Header
             Row(
@@ -64,48 +68,63 @@ fun TimelineView(viewModel: StudioViewModel) {
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     IconButton(
                         onClick = { viewModel.togglePlayback() },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
                     ) {
                         Icon(
                             if (viewModel.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Reproducir",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Reproducir"
                         )
                     }
-                    Text("Frame: ${viewModel.currentFrame} / 24", style = MaterialTheme.typography.titleSmall)
+                    Text("Frame: ${viewModel.currentFrame} / 24", style = MaterialTheme.typography.titleSmall, color = Color.White)
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Exposure controls (+Exp / -Exp)
+                    // -Exp button (Red background feedback)
                     Button(
-                        onClick = { viewModel.extendExposure(viewModel.currentFrame, -1) },
-                        modifier = Modifier.height(30.dp),
+                        onClick = { viewModel.adjustExposure(-1) },
+                        modifier = Modifier.height(28.dp),
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                        shape = RoundedCornerShape(2.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFE57373),
+                            contentColor = Color.White
+                        )
                     ) {
                         Text("-Exp", style = MaterialTheme.typography.labelSmall)
                     }
 
+                    // +Exp button (White background feedback)
                     Button(
-                        onClick = { viewModel.extendExposure(viewModel.currentFrame, 1) },
-                        modifier = Modifier.height(30.dp),
+                        onClick = { viewModel.adjustExposure(1) },
+                        modifier = Modifier.height(28.dp),
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        shape = RoundedCornerShape(2.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color(0xFF1F3333)
+                        )
                     ) {
                         Text("+Exp", style = MaterialTheme.typography.labelSmall)
                     }
 
+                    // Add Level button
                     Button(
                         onClick = { viewModel.addLayer() },
-                        modifier = Modifier.height(30.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(2.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF00CCCB),
+                            contentColor = Color(0xFF1F3333)
+                        )
                     ) {
                         Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -115,9 +134,10 @@ fun TimelineView(viewModel: StudioViewModel) {
                     if (viewModel.layers.isNotEmpty() && viewModel.activeLayerId != 0L) {
                         IconButton(
                             onClick = { showDeleteDialog = true },
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(28.dp),
+                            colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Eliminar Nivel", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Delete, contentDescription = "Eliminar Nivel", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -128,17 +148,16 @@ fun TimelineView(viewModel: StudioViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(80.dp),
+                        .height(60.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "No hay niveles. Toca 'Añadir Nivel' para comenzar a animar.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray
+                        color = Color.White.copy(alpha = 0.8f)
                     )
                 }
             } else {
-                // OpenToonz Style Levels Rows & Frame X-Sheet with Vertical Scroll for 3+ Levels
                 val horizontalScrollState = rememberScrollState()
                 val verticalScrollState = rememberScrollState()
 
@@ -151,79 +170,79 @@ fun TimelineView(viewModel: StudioViewModel) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(horizontalScrollState),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Spacer(modifier = Modifier.width(110.dp)) // space for level label
+                        Spacer(modifier = Modifier.width(100.dp))
                         for (f in 1..24) {
                             Box(
                                 modifier = Modifier
-                                    .width(36.dp)
-                                    .height(20.dp),
+                                    .width(34.dp)
+                                    .height(18.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "$f",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (f == viewModel.currentFrame) MaterialTheme.colorScheme.primary else Color.Gray
+                                    color = if (f == viewModel.currentFrame) Color(0xFF00CCCB) else Color.White.copy(alpha = 0.7f)
                                 )
                             }
                         }
                     }
 
-                    // Scrollable container for levels (scrolls vertically if 3+ levels)
+                    // Scrollable levels
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 160.dp)
+                            .heightIn(max = 150.dp)
                             .verticalScroll(verticalScrollState),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         viewModel.layers.reversed().forEach { layer ->
                             val isLayerActive = layer.id.toLong() == viewModel.activeLayerId
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isLayerActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(if (isLayerActive) Color(0xFF00CCCB).copy(alpha = 0.3f) else Color.Transparent)
                                     .clickable { viewModel.setActiveLayer(layer.id.toLong()) }
-                                    .padding(vertical = 4.dp),
+                                    .padding(vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 // Level Label & Controls
                                 Row(
                                     modifier = Modifier
-                                        .width(110.dp)
-                                        .padding(horizontal = 6.dp),
+                                        .width(100.dp)
+                                        .padding(horizontal = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Icon(
                                         Icons.Default.Visibility,
                                         contentDescription = "Visible",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = Color.DarkGray
+                                        modifier = Modifier.size(14.dp),
+                                        tint = Color.White.copy(alpha = 0.8f)
                                     )
                                     Text(
                                         text = layer.name,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = if (isLayerActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        color = if (isLayerActive) Color(0xFF00CCCB) else Color.White,
                                         maxLines = 1
                                     )
                                     Box(
                                         modifier = Modifier
-                                            .size(8.dp)
+                                            .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(if (isLayerActive) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                            .background(if (isLayerActive) Color(0xFF00CCCB) else Color.Transparent)
                                     )
                                 }
 
-                                // Frame cells for this level with exposure bars
+                                // Frame cells
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .horizontalScroll(horizontalScrollState),
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     var skipCells = 0
                                     for (f in 1..24) {
@@ -241,18 +260,18 @@ fun TimelineView(viewModel: StudioViewModel) {
                                             skipCells = exposure - 1
                                         }
 
-                                        val cellWidth = (36.dp * exposure) + (3.dp * (exposure - 1).coerceAtLeast(0))
+                                        val cellWidth = (34.dp * exposure) + (2.dp * (exposure - 1).coerceAtLeast(0))
 
                                         Box(
                                             modifier = Modifier
                                                 .width(cellWidth)
-                                                .height(30.dp)
-                                                .clip(RoundedCornerShape(6.dp))
+                                                .height(28.dp)
+                                                .clip(RoundedCornerShape(2.dp))
                                                 .background(
                                                     when {
-                                                        isCellSelected -> MaterialTheme.colorScheme.primary
-                                                        hasStrokes -> Color(0xFF3B7A57).copy(alpha = 0.9f)
-                                                        else -> MaterialTheme.colorScheme.surface
+                                                        isCellSelected -> Color(0xFF00CCCB)
+                                                        hasStrokes -> Color(0xFF296666)
+                                                        else -> Color(0xFF1F3333)
                                                     }
                                                 )
                                                 .clickable {
@@ -263,7 +282,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                                         ) {
                                             if (hasStrokes) {
                                                 Text(
-                                                    text = "A$f" + if (exposure > 1) " ($exposure f)" else "",
+                                                    text = "A$f" + if (exposure > 1) " (${exposure}f)" else "",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color.White
                                                 )

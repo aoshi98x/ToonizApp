@@ -4,23 +4,91 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.colombianapps.toonizapp.data.repository.ProjectRepository
+import com.colombianapps.toonizapp.ui.components.CreateProjectDialog
 import com.colombianapps.toonizapp.ui.screen.AnimationStudioScreen
+import com.colombianapps.toonizapp.ui.screen.ProjectManagerScreen
+import com.colombianapps.toonizapp.ui.screen.SplashScreen
+import com.colombianapps.toonizapp.ui.theme.ToonizAppTheme
+import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
+
+enum class AppScreen {
+    SPLASH,
+    PROJECT_MANAGER,
+    EDITOR
+}
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        init {
+            System.loadLibrary("rust_core")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            val repository = remember { ProjectRepository(this) }
+            var currentScreen by remember { mutableStateOf(AppScreen.SPLASH) }
+            var projects by remember { mutableStateOf(repository.getProjects()) }
+            var showCreateDialog by remember { mutableStateOf(false) }
+
+            val viewModel: StudioViewModel = viewModel()
+
+            ToonizAppTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    AnimationStudioScreen()
+                    when (currentScreen) {
+                        AppScreen.SPLASH -> {
+                            SplashScreen(onTimeout = {
+                                currentScreen = AppScreen.PROJECT_MANAGER
+                            })
+                        }
+                        AppScreen.PROJECT_MANAGER -> {
+                            ProjectManagerScreen(
+                                projects = projects,
+                                onCreateProjectClick = { showCreateDialog = true },
+                                onProjectClick = { proj ->
+                                    viewModel.loadProject(proj)
+                                    currentScreen = AppScreen.EDITOR
+                                },
+                                onDeleteProject = { id ->
+                                    repository.deleteProject(id)
+                                    projects = repository.getProjects()
+                                }
+                            )
+
+                            if (showCreateDialog) {
+                                CreateProjectDialog(
+                                    onDismiss = { showCreateDialog = false },
+                                    onCreate = { newProj ->
+                                        repository.saveProject(newProj)
+                                        projects = repository.getProjects()
+                                        viewModel.loadProject(newProj)
+                                        showCreateDialog = false
+                                        currentScreen = AppScreen.EDITOR
+                                    }
+                                )
+                            }
+                        }
+                        AppScreen.EDITOR -> {
+                            AnimationStudioScreen(
+                                viewModel = viewModel,
+                                onBackClick = {
+                                    viewModel.saveProject()
+                                    projects = repository.getProjects()
+                                    currentScreen = AppScreen.PROJECT_MANAGER
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
