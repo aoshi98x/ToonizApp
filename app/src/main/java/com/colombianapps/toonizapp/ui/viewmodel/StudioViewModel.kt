@@ -246,14 +246,13 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         )
         if (selectedTool == ToolType.PENCIL) {
             engine.startStroke(worldX, worldY, pressure, selectedTool, colorInt.toUInt(), strokeWidth)
-            drawingManager.drawLine(activeLayerId, currentFrame, worldX, worldY, worldX, worldY, colorInt, strokeWidth, selectedTool, strokeHardness)
+            drawingManager.startPath(worldX, worldY, pressure)
         } else {
             val isSoft = selectedTool == ToolType.SOFT_ERASER
             engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
-            drawingManager.drawLine(activeLayerId, currentFrame, worldX, worldY, worldX, worldY, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
+            drawingManager.startPath(worldX, worldY, pressure)
         }
         hasUnsavedChanges = true
-        strokesVersion++
     }
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
@@ -266,16 +265,16 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         )
         if (selectedTool == ToolType.PENCIL) {
             engine.addPoint(worldX, worldY, pressure)
-            drawingManager.drawLine(activeLayerId, currentFrame, lastX, lastY, worldX, worldY, colorInt, strokeWidth, selectedTool, strokeHardness)
+            drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, colorInt, strokeWidth, selectedTool, strokeHardness)
         } else {
             val isSoft = selectedTool == ToolType.SOFT_ERASER
             engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
-            drawingManager.drawLine(activeLayerId, currentFrame, lastX, lastY, worldX, worldY, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
+            drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
         }
         lastX = worldX
         lastY = worldY
         hasUnsavedChanges = true
-        strokesVersion++
+        // NOTE: No strokesVersion++ during active stroke drag for 100% zero-lag performance!
     }
 
     fun endStroke() {
@@ -283,7 +282,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         if (selectedTool == ToolType.PENCIL) {
             engine.endStroke()
         }
-        strokesVersion++
+        hasUnsavedChanges = true
+        strokesVersion++ // Trigger state sync on stroke end
     }
 
     fun undo() {

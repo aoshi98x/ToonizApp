@@ -69,7 +69,7 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
 
             HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
 
-            // Thickness Controls
+            // Thickness Controls (with sufficient width for up to 500)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -88,7 +88,7 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                         val parsed = it.toFloatOrNull() ?: 1f
                         viewModel.updateStrokeWidth(parsed)
                     },
-                    modifier = Modifier.width(55.dp).height(42.dp),
+                    modifier = Modifier.width(70.dp).height(46.dp),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
