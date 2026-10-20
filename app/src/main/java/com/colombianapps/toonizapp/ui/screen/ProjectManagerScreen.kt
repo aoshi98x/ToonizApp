@@ -1,5 +1,7 @@
 package com.colombianapps.toonizapp.ui.screen
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,13 +10,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.colombianapps.toonizapp.R
 import com.colombianapps.toonizapp.data.model.AnimationProject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,7 +32,27 @@ fun ProjectManagerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Gestor de Proyectos - Tooniz") },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_logo_tooniz),
+                                contentDescription = "Tooniz Logo",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Text("Gestor de Proyectos - Tooniz")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             )
         },
@@ -50,9 +74,21 @@ fun ProjectManagerScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray)
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_logo_tooniz),
+                            contentDescription = null,
+                            modifier = Modifier.size(70.dp)
+                        )
+                    }
                     Text("No hay proyectos iniciados", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
                     Button(onClick = onCreateProjectClick) {
                         Text("Crear nuevo proyecto")
