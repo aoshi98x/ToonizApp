@@ -83,6 +83,12 @@ class DrawingManager {
         return maxF
     }
 
+    fun hasBitmap(layerId: Long, frameIndex: Int): Boolean {
+        val key = makeKey(layerId, frameIndex)
+        val bmp = bitmaps[key] ?: return false
+        return !bmp.isRecycled
+    }
+
     fun startPath(x: Float, y: Float, pressure: Float) {
         lastX = x
         lastY = y
@@ -219,17 +225,31 @@ class DrawingManager {
             projectDir.mkdirs()
         }
 
-        for ((key, bmp) in bitmaps) {
+        val snapshotList = synchronized(bitmaps) {
+            bitmaps.entries.mapNotNull { (key, bmp) ->
+                if (!bmp.isRecycled) {
+                    try {
+                        Pair(key, bmp.copy(Bitmap.Config.ARGB_8888, false))
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else null
+            }
+        }
+
+        for ((key, copyBmp) in snapshotList) {
             val layerId = key shr 32
             val frameIndex = (key and 0xFFFFFFFFL).toInt()
             val file = File(projectDir, "${layerId}_$frameIndex.png")
-            
+
             try {
                 FileOutputStream(file).use { out ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    copyBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                copyBmp.recycle()
             }
         }
     }

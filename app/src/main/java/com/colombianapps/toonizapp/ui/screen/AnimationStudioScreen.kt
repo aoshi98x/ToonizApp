@@ -1,12 +1,17 @@
 package com.colombianapps.toonizapp.ui.screen
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,6 +26,7 @@ import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 private val ActiveCyan = Color(0xFF00CCCB)
 private val BorderCyan = Color(0xFF163B43)
 private val BgDark = Color(0xFF071215)
+private val PanelBg = Color(0xFF0D1E22)
 
 @Composable
 fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick: () -> Unit) {
@@ -28,49 +34,94 @@ fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick:
         // Canvas
         AnimationCanvas(viewModel = viewModel)
 
-        // Top Toolbar
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            TopToolbar(viewModel = viewModel, onBackClick = onBackClick)
-        }
-
-        // Reset Transform Button (positioned below Top Toolbar to avoid overlap)
-        if (viewModel.scale != 1f || viewModel.offsetX != 0f || viewModel.offsetY != 0f || viewModel.rotation != 0f) {
+        if (viewModel.isPlaying) {
+            // Full Screen Playback Mode Banner
             Surface(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 64.dp, end = 16.dp)
-                    .clickable { viewModel.resetTransform() },
-                shape = RoundedCornerShape(3.dp),
-                color = ActiveCyan,
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .clickable { viewModel.stopPlayback() },
+                shape = RoundedCornerShape(20.dp),
+                color = PanelBg,
+                border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan),
+                shadowElevation = 8.dp
             ) {
-                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("Reestablecer Vista", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(ActiveCyan))
+                    Text(
+                        "REPRODUCIENDO · ${viewModel.currentProject?.fps ?: 24} FPS",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        "Frame ${viewModel.currentFrame} / ${viewModel.getMaxFrameWithStrokes()}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveCyan
+                    )
+                    Button(
+                        onClick = { viewModel.stopPlayback() },
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActiveCyan, contentColor = BgDark)
+                    ) {
+                        Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Pausar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-        }
+        } else {
+            // Standard Editing View: Toolbars, Sidebar, and Timeline
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                TopToolbar(viewModel = viewModel, onBackClick = onBackClick)
+            }
 
-        // Right Sidebar
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp)
-        ) {
-            RightSidebar(viewModel = viewModel)
-        }
+            // Reset Transform Button
+            if (viewModel.scale != 1f || viewModel.offsetX != 0f || viewModel.offsetY != 0f || viewModel.rotation != 0f) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 64.dp, end = 16.dp)
+                        .clickable { viewModel.resetTransform() },
+                    shape = RoundedCornerShape(3.dp),
+                    color = ActiveCyan,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
+                ) {
+                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text("Reestablecer Vista", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
+                    }
+                }
+            }
 
-        // Bottom Timeline
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-        ) {
-            TimelineView(viewModel = viewModel)
+            // Right Sidebar
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
+            ) {
+                RightSidebar(viewModel = viewModel)
+            }
+
+            // Bottom Timeline
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+            ) {
+                TimelineView(viewModel = viewModel)
+            }
         }
     }
 }

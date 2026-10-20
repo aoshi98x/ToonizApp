@@ -148,6 +148,14 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         canRedo = redoMap[key]?.isNotEmpty() == true
     }
 
+    fun stopPlayback() {
+        isPlaying = false
+        playbackJob?.cancel()
+        playbackJob = null
+        currentScreenPosition = null
+        isPointerDown = false
+    }
+
     fun getMaxFrameWithStrokes(): Int {
         var maxF = 1
         for (layer in layers) {
@@ -156,16 +164,16 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 maxF = layerMax
             }
         }
-        val engineMax = engine.getMaxFrameWithStrokes().toInt()
-        return maxOf(maxF, engineMax, 1)
+        return maxOf(maxF, 1)
     }
 
     fun getCellSummary(layerId: ULong, frameIndex: UInt): FrameCellSummary {
         val key = (layerId.toLong() shl 32) or (frameIndex.toLong() and 0xFFFFFFFFL)
         return frameCellCache.getOrPut(key) {
+            val hasBmp = drawingManager.hasBitmap(layerId.toLong(), frameIndex.toInt())
             val strokes = engine.getStrokesForLayerAndFrame(layerId, frameIndex)
-            val hasStrokes = strokes.isNotEmpty()
-            val exposure = if (hasStrokes) strokes.first().exposure.toInt() else 1
+            val hasStrokes = hasBmp || strokes.isNotEmpty()
+            val exposure = if (strokes.isNotEmpty()) strokes.first().exposure.toInt() else 1
             FrameCellSummary(hasStrokes, exposure)
         }
     }
@@ -174,7 +182,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         autoSaveJob = viewModelScope.launch {
             while (true) {
                 delay(180_000L) // 3 minutes auto-save
-                if (hasUnsavedChanges && currentProject != null) {
+                if (hasUnsavedChanges && currentProject != null && !isPlaying) {
                     saveProject()
                 }
             }
@@ -182,6 +190,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun loadProject(project: AnimationProject) {
+        stopPlayback()
         currentProject = project
         hasUnsavedChanges = false
 
@@ -229,15 +238,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         engine.setActiveLayer(activeLayerId.toULong())
 
         // Load Bitmaps from disk into DrawingManager
-        val loadedCells = drawingManager.loadBitmaps(context, project.id)
-
-        // Populate stroke markers in Rust Engine for timeline frame cells
-        for ((layerId, frameIndex) in loadedCells) {
-            engine.setActiveLayer(layerId.toULong())
-            engine.setCurrentFrame(frameIndex.toUInt())
-            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
-            engine.endStroke()
-        }
+        drawingManager.loadBitmaps(context, project.id)
 
         engine.setActiveLayer(activeLayerId.toULong())
         engine.setCurrentFrame(1.toUInt())
@@ -248,6 +249,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveProject() {
+        stopPlayback()
         val proj = currentProject ?: return
         projectRepository.saveProject(proj)
 
@@ -434,11 +436,13 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun togglePlayback() {
         if (layers.isEmpty()) return
-        isPlaying = !isPlaying
         if (isPlaying) {
+            stopPlayback()
+        } else {
+            isPlaying = true
             val fps = currentProject?.fps ?: 24
             val maxFrame = getMaxFrameWithStrokes()
-            
+
             playbackJob = viewModelScope.launch {
                 val startSystemTime = System.currentTimeMillis()
                 var frameIndex = currentFrame
@@ -454,8 +458,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                     updateCurrentFrame(frameIndex)
                 }
             }
-        } else {
-            playbackJob?.cancel()
         }
     }
 
