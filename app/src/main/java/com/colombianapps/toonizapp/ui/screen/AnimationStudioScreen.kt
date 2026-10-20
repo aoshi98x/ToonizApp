@@ -8,13 +8,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.colombianapps.toonizapp.ui.components.AnimationCanvas
 import com.colombianapps.toonizapp.ui.components.RightSidebar
 import com.colombianapps.toonizapp.ui.components.TimelineView
 import com.colombianapps.toonizapp.ui.components.TopToolbar
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
+
+private val ActiveCyan = Color(0xFF00CCCB)
+private val BorderCyan = Color(0xFF163B43)
+private val BgDark = Color(0xFF071215)
 
 @Composable
 fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick: () -> Unit) {
@@ -37,14 +43,14 @@ fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick:
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 70.dp, end = 16.dp)
+                    .padding(top = 64.dp, end = 16.dp)
                     .clickable { viewModel.resetTransform() },
-                shape = RoundedCornerShape(4.dp),
-                color = MaterialTheme.colorScheme.primary,
-                tonalElevation = 6.dp
+                shape = RoundedCornerShape(3.dp),
+                color = ActiveCyan,
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
             ) {
-                Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    Text("Reestablecer Vista", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("Reestablecer Vista", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
                 }
             }
         }

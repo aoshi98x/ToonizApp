@@ -1,6 +1,7 @@
 package com.colombianapps.toonizapp.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -16,8 +17,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
+
+private val BgDark = Color(0xFF071215)
+private val PanelBg = Color(0xFF0D1E22)
+private val CardBg = Color(0xFF0A181C)
+private val BorderCyan = Color(0xFF163B43)
+private val ActiveCyan = Color(0xFF00CCCB)
+private val OccupiedTeal = Color(0xFF165257)
+private val TextMuted = Color(0xFF8FA8B0)
 
 @Composable
 fun TimelineView(viewModel: StudioViewModel) {
@@ -29,22 +40,27 @@ fun TimelineView(viewModel: StudioViewModel) {
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Eliminar Nivel") },
-            text = { Text("¿Estás seguro de que deseas eliminar este nivel y todos sus dibujos?") },
+            containerColor = PanelBg,
+            shape = RoundedCornerShape(4.dp),
+            title = { Text("Eliminar Nivel", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = { Text("¿Estás seguro de que deseas eliminar este nivel y todos sus dibujos?", color = TextMuted, fontSize = 13.sp) },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteLayer(viewModel.activeLayerId)
-                    showDeleteDialog = false
-                }) {
-                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                Button(
+                    onClick = {
+                        viewModel.deleteLayer(viewModel.activeLayerId)
+                        showDeleteDialog = false
+                    },
+                    shape = RoundedCornerShape(2.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar", color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancelar")
+                    Text("Cancelar", color = Color.White)
                 }
-            },
-            shape = RoundedCornerShape(4.dp)
+            }
         )
     }
 
@@ -53,8 +69,8 @@ fun TimelineView(viewModel: StudioViewModel) {
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp),
         shape = RoundedCornerShape(4.dp),
-        tonalElevation = 8.dp,
-        color = Color(0xFF1F9998)
+        color = PanelBg,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
     ) {
         Column(
             modifier = Modifier.padding(10.dp),
@@ -68,67 +84,72 @@ fun TimelineView(viewModel: StudioViewModel) {
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
                         onClick = { viewModel.togglePlayback() },
                         modifier = Modifier.size(32.dp),
-                        colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = ActiveCyan)
                     ) {
                         Icon(
                             if (viewModel.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Reproducir"
                         )
                     }
-                    Text("Frame: ${viewModel.currentFrame} / ${viewModel.totalTimelineFrames}", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    Text(
+                        "Frame: ${viewModel.currentFrame} / ${viewModel.totalTimelineFrames}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // -Exp button
                     Button(
                         onClick = { viewModel.adjustExposure(-1) },
                         modifier = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(2.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFE57373),
                             contentColor = Color.White
                         )
                     ) {
-                        Text("-Exp", style = MaterialTheme.typography.labelSmall)
+                        Text("-Exp", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
 
                     // +Exp button
                     Button(
                         onClick = { viewModel.adjustExposure(1) },
                         modifier = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(2.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF1F3333)
+                            containerColor = ActiveCyan,
+                            contentColor = BgDark
                         )
                     ) {
-                        Text("+Exp", style = MaterialTheme.typography.labelSmall)
+                        Text("+Exp", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
 
                     // Add Level button
                     Button(
                         onClick = { viewModel.addLayer() },
                         modifier = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(2.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF00CCCB),
-                            contentColor = Color(0xFF1F3333)
+                            containerColor = ActiveCyan,
+                            contentColor = BgDark
                         )
                     ) {
                         Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Añadir Nivel", style = MaterialTheme.typography.bodySmall)
+                        Text("Añadir Nivel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     if (viewModel.layers.isNotEmpty() && viewModel.activeLayerId != 0L) {
@@ -148,13 +169,13 @@ fun TimelineView(viewModel: StudioViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp),
+                        .height(50.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "No hay niveles. Toca 'Añadir Nivel' para comenzar a animar.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.8f)
+                        fontSize = 12.sp,
+                        color = TextMuted
                     )
                 }
             } else {
@@ -182,8 +203,9 @@ fun TimelineView(viewModel: StudioViewModel) {
                             ) {
                                 Text(
                                     text = "$f",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (f == viewModel.currentFrame) Color(0xFF00CCCB) else Color.White.copy(alpha = 0.7f)
+                                    fontSize = 10.sp,
+                                    fontWeight = if (f == viewModel.currentFrame) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (f == viewModel.currentFrame) ActiveCyan else TextMuted
                                 )
                             }
                         }
@@ -204,7 +226,8 @@ fun TimelineView(viewModel: StudioViewModel) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(if (isLayerActive) Color(0xFF00CCCB).copy(alpha = 0.3f) else Color.Transparent)
+                                    .background(if (isLayerActive) ActiveCyan.copy(alpha = 0.2f) else Color.Transparent)
+                                    .border(if (isLayerActive) 1.dp else 0.dp, if (isLayerActive) BorderCyan else Color.Transparent, RoundedCornerShape(2.dp))
                                     .clickable { viewModel.setActiveLayer(layer.id.toLong()) }
                                     .padding(vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -222,19 +245,20 @@ fun TimelineView(viewModel: StudioViewModel) {
                                         Icons.Default.Visibility,
                                         contentDescription = "Visible",
                                         modifier = Modifier.size(14.dp),
-                                        tint = Color.White.copy(alpha = 0.8f)
+                                        tint = TextMuted
                                     )
                                     Text(
                                         text = layer.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (isLayerActive) Color(0xFF00CCCB) else Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isLayerActive) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isLayerActive) ActiveCyan else Color.White,
                                         maxLines = 1
                                     )
                                     Box(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(if (isLayerActive) Color(0xFF00CCCB) else Color.Transparent)
+                                            .background(if (isLayerActive) ActiveCyan else Color.Transparent)
                                     )
                                 }
 
@@ -270,11 +294,12 @@ fun TimelineView(viewModel: StudioViewModel) {
                                                 .clip(RoundedCornerShape(2.dp))
                                                 .background(
                                                     when {
-                                                        isCellSelected -> Color(0xFF00CCCB)
-                                                        hasStrokes -> Color(0xFF296666)
-                                                        else -> Color(0xFF1F3333)
+                                                        isCellSelected -> ActiveCyan
+                                                        hasStrokes -> OccupiedTeal
+                                                        else -> CardBg
                                                     }
                                                 )
+                                                .border(1.dp, BorderCyan, RoundedCornerShape(2.dp))
                                                 .clickable {
                                                     viewModel.setActiveLayer(layer.id.toLong())
                                                     viewModel.updateCurrentFrame(f)
@@ -284,8 +309,9 @@ fun TimelineView(viewModel: StudioViewModel) {
                                             if (hasStrokes) {
                                                 Text(
                                                     text = "A$f" + if (exposure > 1) " (${exposure}f)" else "",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.White
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCellSelected) BgDark else Color.White
                                                 )
                                             }
                                         }

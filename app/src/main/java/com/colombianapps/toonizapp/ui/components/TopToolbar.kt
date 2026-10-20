@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,10 +17,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 import uniffi.rust_core.ToolType
+
+private val BgDark = Color(0xFF071215)
+private val PanelBg = Color(0xFF0D1E22)
+private val CardBg = Color(0xFF0A181C)
+private val BorderCyan = Color(0xFF163B43)
+private val ActiveCyan = Color(0xFF00CCCB)
+private val TextMuted = Color(0xFF8FA8B0)
 
 @Composable
 fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
@@ -29,8 +40,8 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
     Surface(
         modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
         shape = RoundedCornerShape(4.dp),
-        tonalElevation = 6.dp,
-        color = Color(0xFF1F9998) // #1F9998 background for panel
+        color = PanelBg,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -46,12 +57,12 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver a Proyectos", modifier = Modifier.size(18.dp))
             }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
+            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
             // Selected Tool Name Badge
             Surface(
-                shape = RoundedCornerShape(2.dp),
-                color = Color(0xFF00CCCB),
+                shape = RoundedCornerShape(3.dp),
+                color = ActiveCyan,
                 modifier = Modifier.height(32.dp)
             ) {
                 Box(
@@ -63,24 +74,24 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                         ToolType.HARD_ERASER -> "🧽 B. Duro"
                         ToolType.SOFT_ERASER -> "🖌️ B. Suave"
                     }
-                    Text(toolName, style = MaterialTheme.typography.bodySmall, color = Color(0xFF1F3333))
+                    Text(toolName, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = BgDark)
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
+            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
-            // Thickness Controls (with sufficient width for up to 500)
+            // Thickness Controls
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Grosor:", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                Text("Grosor:", fontSize = 11.sp, color = TextMuted)
                 Slider(
                     value = viewModel.strokeWidth.coerceIn(1f, 100f),
                     onValueChange = { viewModel.updateStrokeWidth(it) },
                     valueRange = 1f..100f,
                     modifier = Modifier.width(80.dp),
-                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF00CCCB))
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
                 )
                 OutlinedTextField(
                     value = viewModel.strokeWidth.toInt().toString(),
@@ -88,16 +99,16 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                         val parsed = it.toFloatOrNull() ?: 1f
                         viewModel.updateStrokeWidth(parsed)
                     },
-                    modifier = Modifier.width(70.dp).height(46.dp),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
+                    modifier = Modifier.width(68.dp).height(42.dp),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.White),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
-                    shape = RoundedCornerShape(2.dp),
+                    shape = RoundedCornerShape(3.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.White,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedContainerColor = CardBg,
+                        unfocusedContainerColor = CardBg,
+                        focusedBorderColor = ActiveCyan,
+                        unfocusedBorderColor = BorderCyan
                     )
                 )
             }
@@ -107,63 +118,78 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(28.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(RoundedCornerShape(3.dp))
                         .background(viewModel.currentColor)
-                        .border(1.5.dp, Color.White, RoundedCornerShape(2.dp))
+                        .border(1.5.dp, Color.White, RoundedCornerShape(3.dp))
                         .clickable { viewModel.isColorPickerOpen = true }
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
+            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
             // Hardness Slider
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
                 Slider(
                     value = viewModel.strokeHardness,
                     onValueChange = { viewModel.updateStrokeHardness(it) },
                     valueRange = 0f..1f,
                     modifier = Modifier.width(70.dp),
-                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF00CCCB))
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
+            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
             // Onion Skin Menu
             OnionSkinMenu(viewModel = viewModel)
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = Color.White.copy(alpha = 0.3f))
+            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
             // Save Button
             Button(
                 onClick = { viewModel.saveProject() },
                 enabled = viewModel.hasUnsavedChanges,
                 modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(2.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(3.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF00CCCB),
-                    contentColor = Color(0xFF1F3333),
-                    disabledContainerColor = Color.Gray.copy(alpha = 0.5f),
-                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    containerColor = ActiveCyan,
+                    contentColor = BgDark,
+                    disabledContainerColor = CardBg,
+                    disabledContentColor = TextMuted
                 )
             ) {
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(2.dp))
-                Text("Guardar", style = MaterialTheme.typography.labelSmall)
+                Spacer(modifier = Modifier.width(3.dp))
+                Text("Guardar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
 
-            // Undo & Clear
+            // Undo, Redo & Clear
             IconButton(
                 onClick = { viewModel.undo() },
+                enabled = viewModel.canUndo,
                 modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = Color.White,
+                    disabledContentColor = TextMuted.copy(alpha = 0.4f)
+                )
             ) {
-                Icon(Icons.Default.Undo, contentDescription = "Deshacer", modifier = Modifier.size(18.dp))
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Deshacer (Paso atrás)", modifier = Modifier.size(18.dp))
+            }
+            IconButton(
+                onClick = { viewModel.redo() },
+                enabled = viewModel.canRedo,
+                modifier = Modifier.size(32.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = Color.White,
+                    disabledContentColor = TextMuted.copy(alpha = 0.4f)
+                )
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Rehacer (Paso adelante)", modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = { viewModel.clearCurrentFrame() },

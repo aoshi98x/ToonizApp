@@ -16,12 +16,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+
+private val DialogBg = Color(0xFF0D1E22)
+private val ActiveCyan = Color(0xFF00CCCB)
 
 @Composable
 fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
@@ -39,7 +44,11 @@ fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
 
     AlertDialog(
         onDismissRequest = { viewModel.isColorPickerOpen = false },
-        title = { Text("Selector de Color Estilo Rueda") },
+        containerColor = DialogBg,
+        titleContentColor = Color.White,
+        textContentColor = Color.White,
+        shape = RoundedCornerShape(6.dp),
+        title = { Text("Rueda de Color Pro", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White) },
         text = {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -143,10 +152,13 @@ fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
             }
         },
         confirmButton = {
-            TextButton(onClick = { viewModel.isColorPickerOpen = false }) {
-                Text("Aceptar")
+            Button(
+                onClick = { viewModel.isColorPickerOpen = false },
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ActiveCyan, contentColor = Color(0xFF071215))
+            ) {
+                Text("Aceptar", fontWeight = FontWeight.Bold)
             }
-        },
-        shape = RoundedCornerShape(4.dp)
+        }
     )
 }

@@ -2,6 +2,7 @@ package com.colombianapps.toonizapp.ui.screen
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -19,6 +20,11 @@ import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.R
 import kotlinx.coroutines.delay
 
+private val BgDark = Color(0xFF071215)
+private val PanelBg = Color(0xFF0D1E22)
+private val ActiveCyan = Color(0xFF00CCCB)
+private val TextMuted = Color(0xFF8FA8B0)
+
 @Composable
 fun SplashScreen(onTimeout: () -> Unit) {
     LaunchedEffect(Unit) {
@@ -28,7 +34,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF1F9998)
+        color = BgDark
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -38,12 +44,13 @@ fun SplashScreen(onTimeout: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Official Tooniz Logo
+                // Official Tooniz Logo in Studio Container
                 Box(
                     modifier = Modifier
                         .size(130.dp)
                         .clip(RoundedCornerShape(28.dp))
-                        .background(Color.Black),
+                        .background(PanelBg)
+                        .border(1.5.dp, ActiveCyan, RoundedCornerShape(28.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -53,18 +60,20 @@ fun SplashScreen(onTimeout: () -> Unit) {
                     )
                 }
 
-                Text(
-                    text = "Tooniz App",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Tooniz Studio",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
 
-                Text(
-                    text = "Estudio de Animación Profesional",
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
+                    Text(
+                        text = "Estudio de Animación Profesional · v2.4 Pro",
+                        fontSize = 13.sp,
+                        color = TextMuted
+                    )
+                }
             }
         }
     }

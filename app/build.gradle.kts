@@ -125,6 +125,8 @@ tasks.register<Exec>("generateUniFFIBindings") {
     )
 }
 
-tasks.named("preBuild") {
-    dependsOn("generateUniFFIBindings")
+if (file("../rustCore").exists()) {
+    tasks.named("preBuild") {
+        dependsOn("generateUniFFIBindings")
+    }
 }

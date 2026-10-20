@@ -1,6 +1,7 @@
 package com.colombianapps.toonizapp.ui.viewmodel
 
 import android.app.Application
+import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,6 +21,7 @@ import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
 import java.io.File
+import java.util.ArrayDeque
 
 data class FrameCellSummary(
     val hasStrokes: Boolean,
@@ -110,8 +112,18 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     var isPointerDown by mutableStateOf(false)
         private set
 
+    var canUndo by mutableStateOf(false)
+        private set
+
+    var canRedo by mutableStateOf(false)
+        private set
+
     private var playbackJob: Job? = null
     private var autoSaveJob: Job? = null
+
+    // Undo & Redo History Stacks per (layerId, frameIndex) cell
+    private val undoMap = mutableMapOf<Long, ArrayDeque<Bitmap>>()
+    private val redoMap = mutableMapOf<Long, ArrayDeque<Bitmap>>()
 
     // Cache to eliminate massive JNI overhead during TimelineView rendering
     private val frameCellCache = mutableMapOf<Long, FrameCellSummary>()
@@ -128,6 +140,12 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     private fun invalidateCellCache() {
         frameCellCache.clear()
         strokesVersion++
+    }
+
+    private fun updateUndoRedoStates() {
+        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
+        canUndo = undoMap[key]?.isNotEmpty() == true
+        canRedo = redoMap[key]?.isNotEmpty() == true
     }
 
     fun getCellSummary(layerId: ULong, frameIndex: UInt): FrameCellSummary {
@@ -156,6 +174,10 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         hasUnsavedChanges = false
 
         drawingManager.clearAll()
+        undoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
+        redoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
+        undoMap.clear()
+        redoMap.clear()
 
         val context = getApplication<Application>()
         val projectDir = File(context.filesDir, "project_drawings_${project.id}")
@@ -209,6 +231,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         engine.setCurrentFrame(1.toUInt())
         currentFrame = 1
 
+        updateUndoRedoStates()
         invalidateCellCache()
     }
 
@@ -305,6 +328,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun updateCurrentFrame(frame: Int) {
         currentFrame = frame.coerceIn(1, totalTimelineFrames)
         engine.setCurrentFrame(currentFrame.toUInt())
+        updateUndoRedoStates()
         invalidateCellCache()
     }
 
@@ -317,6 +341,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun setActiveLayer(layerId: Long) {
         activeLayerId = layerId
         engine.setActiveLayer(layerId.toULong())
+        updateUndoRedoStates()
         invalidateCellCache()
     }
 
@@ -376,6 +401,26 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
+
+        // Push current bitmap state to Undo stack before drawing new stroke
+        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
+        val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
+        val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
+        if (snapshot != null) {
+            if (undoStack.size >= 30) {
+                undoStack.removeFirst().recycle()
+            }
+            undoStack.addLast(snapshot)
+        }
+
+        // Clear Redo stack on new drawing stroke
+        redoMap[key]?.let { stack ->
+            stack.forEach { it.recycle() }
+            stack.clear()
+        }
+
+        updateUndoRedoStates()
+
         val colorInt = currentColorArgb
         if (selectedTool == ToolType.PENCIL) {
             engine.startStroke(worldX, worldY, pressure, selectedTool, colorInt.toUInt(), strokeWidth)
@@ -410,22 +455,83 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             engine.endStroke()
         }
         hasUnsavedChanges = true
+        updateUndoRedoStates()
         invalidateCellCache()
     }
 
     fun undo() {
         if (activeLayerId == 0L) return
-        engine.undo()
-        drawingManager.clear(activeLayerId, currentFrame)
-        hasUnsavedChanges = true
-        invalidateCellCache()
+        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
+        val undoStack = undoMap[key]
+        if (undoStack != null && undoStack.isNotEmpty()) {
+            // Push current state to Redo
+            val currentSnapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
+            if (currentSnapshot != null) {
+                val redoStack = redoMap.getOrPut(key) { ArrayDeque() }
+                if (redoStack.size >= 30) {
+                    redoStack.removeFirst().recycle()
+                }
+                redoStack.addLast(currentSnapshot)
+            }
+
+            // Restore state from Undo
+            val previousBmp = undoStack.removeLast()
+            drawingManager.setBitmap(activeLayerId, currentFrame, previousBmp)
+            previousBmp.recycle()
+            engine.undo()
+
+            hasUnsavedChanges = true
+            drawNonce++
+            updateUndoRedoStates()
+            invalidateCellCache()
+        }
+    }
+
+    fun redo() {
+        if (activeLayerId == 0L) return
+        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
+        val redoStack = redoMap[key]
+        if (redoStack != null && redoStack.isNotEmpty()) {
+            // Push current state to Undo
+            val currentSnapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
+            if (currentSnapshot != null) {
+                val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
+                if (undoStack.size >= 30) {
+                    undoStack.removeFirst().recycle()
+                }
+                undoStack.addLast(currentSnapshot)
+            }
+
+            // Restore state from Redo
+            val redoneBmp = redoStack.removeLast()
+            drawingManager.setBitmap(activeLayerId, currentFrame, redoneBmp)
+            redoneBmp.recycle()
+
+            hasUnsavedChanges = true
+            drawNonce++
+            updateUndoRedoStates()
+            invalidateCellCache()
+        }
     }
 
     fun clearCurrentFrame() {
         if (activeLayerId == 0L) return
+        
+        // Save current bitmap to undo before clearing
+        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
+        val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
+        val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
+        if (snapshot != null) {
+            if (undoStack.size >= 30) {
+                undoStack.removeFirst().recycle()
+            }
+            undoStack.addLast(snapshot)
+        }
+
         engine.clearCurrentFrame()
         drawingManager.clear(activeLayerId, currentFrame)
         hasUnsavedChanges = true
+        updateUndoRedoStates()
         invalidateCellCache()
     }
 

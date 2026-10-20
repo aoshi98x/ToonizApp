@@ -137,6 +137,21 @@ class DrawingManager {
         bitmaps[key]?.eraseColor(android.graphics.Color.TRANSPARENT)
     }
 
+    fun setBitmap(layerId: Long, frameIndex: Int, sourceBmp: Bitmap?) {
+        val targetBmp = getBitmap(layerId, frameIndex)
+        val canvas = Canvas(targetBmp)
+        canvas.drawColor(android.graphics.Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        if (sourceBmp != null) {
+            canvas.drawBitmap(sourceBmp, 0f, 0f, null)
+        }
+    }
+
+    fun copyBitmap(layerId: Long, frameIndex: Int): Bitmap? {
+        val key = makeKey(layerId, frameIndex)
+        val bmp = bitmaps[key] ?: return null
+        return bmp.copy(Bitmap.Config.ARGB_8888, true)
+    }
+
     fun clearAll() {
         bitmaps.values.forEach { it.recycle() }
         bitmaps.clear()
