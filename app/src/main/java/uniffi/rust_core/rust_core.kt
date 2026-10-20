@@ -750,6 +750,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -793,6 +795,8 @@ internal interface UniffiLib : Library {
     ): Int
     fun uniffi_rust_core_fn_method_animationengine_get_layers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_rust_core_fn_method_animationengine_get_max_frame_with_strokes(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     fun uniffi_rust_core_fn_method_animationengine_get_onion_strokes(`ptr`: Pointer,`pastCount`: Int,`futureCount`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_rust_core_fn_method_animationengine_get_strokes_for_frame(`ptr`: Pointer,`frameIndex`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -939,6 +943,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_layers(
     ): Short
+    fun uniffi_rust_core_checksum_method_animationengine_get_max_frame_with_strokes(
+    ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_onion_strokes(
     ): Short
     fun uniffi_rust_core_checksum_method_animationengine_get_strokes_for_frame(
@@ -999,6 +1005,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_layers() != 54930.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_core_checksum_method_animationengine_get_max_frame_with_strokes() != 20765.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_core_checksum_method_animationengine_get_onion_strokes() != 21190.toShort()) {
@@ -1429,6 +1438,8 @@ public interface AnimationEngineInterface {
     
     fun `getLayers`(): List<Layer>
     
+    fun `getMaxFrameWithStrokes`(): kotlin.UInt
+    
     fun `getOnionStrokes`(`pastCount`: kotlin.UInt, `futureCount`: kotlin.UInt): List<OnionStroke>
     
     fun `getStrokesForFrame`(`frameIndex`: kotlin.UInt): List<Stroke>
@@ -1632,6 +1643,18 @@ open class AnimationEngine: Disposable, AutoCloseable, AnimationEngineInterface 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_get_layers(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `getMaxFrameWithStrokes`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_core_fn_method_animationengine_get_max_frame_with_strokes(
         it, _status)
 }
     }

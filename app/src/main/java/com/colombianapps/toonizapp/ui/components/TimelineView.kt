@@ -54,7 +54,7 @@ fun TimelineView(viewModel: StudioViewModel) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         shape = RoundedCornerShape(4.dp),
         tonalElevation = 8.dp,
-        color = Color(0xFF1F9998) // #1F9998 background for timeline panel
+        color = Color(0xFF1F9998)
     ) {
         Column(
             modifier = Modifier.padding(10.dp),
@@ -80,14 +80,14 @@ fun TimelineView(viewModel: StudioViewModel) {
                             contentDescription = "Reproducir"
                         )
                     }
-                    Text("Frame: ${viewModel.currentFrame} / 24", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    Text("Frame: ${viewModel.currentFrame} / ${viewModel.totalTimelineFrames}", style = MaterialTheme.typography.titleSmall, color = Color.White)
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // -Exp button (Red background feedback)
+                    // -Exp button
                     Button(
                         onClick = { viewModel.adjustExposure(-1) },
                         modifier = Modifier.height(28.dp),
@@ -101,7 +101,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                         Text("-Exp", style = MaterialTheme.typography.labelSmall)
                     }
 
-                    // +Exp button (White background feedback)
+                    // +Exp button
                     Button(
                         onClick = { viewModel.adjustExposure(1) },
                         modifier = Modifier.height(28.dp),
@@ -165,7 +165,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Header numbers (1 to 24)
+                    // Header numbers (1 to 240)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -173,7 +173,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Spacer(modifier = Modifier.width(100.dp))
-                        for (f in 1..24) {
+                        for (f in 1..viewModel.totalTimelineFrames) {
                             Box(
                                 modifier = Modifier
                                     .width(34.dp)
@@ -237,7 +237,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                                     )
                                 }
 
-                                // Frame cells
+                                // Frame cells (1 to 240)
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -245,7 +245,7 @@ fun TimelineView(viewModel: StudioViewModel) {
                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     var skipCells = 0
-                                    for (f in 1..24) {
+                                    for (f in 1..viewModel.totalTimelineFrames) {
                                         if (skipCells > 0) {
                                             skipCells--
                                             continue

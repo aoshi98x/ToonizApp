@@ -61,10 +61,19 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     var offsetY by mutableStateOf(0f)
         private set
 
+    var rotation by mutableStateOf(0f)
+        private set
+
     var strokesVersion by mutableStateOf(0)
         private set
 
+    var drawNonce by mutableStateOf(0)
+        private set
+
     var currentFrame by mutableStateOf(1)
+        private set
+
+    var totalTimelineFrames by mutableStateOf(240)
         private set
 
     var activeLayerId by mutableStateOf(0L)
@@ -87,9 +96,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     var isPointerDown by mutableStateOf(false)
         private set
-
-    private var lastX = 0f
-    private var lastY = 0f
 
     private var playbackJob: Job? = null
     private var autoSaveJob: Job? = null
@@ -165,16 +171,30 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         hasUnsavedChanges = true
     }
 
-    fun updateTransform(newScale: Float, newPanX: Float, newPanY: Float) {
+    fun updateTransform(newScale: Float, newPanX: Float, newPanY: Float, newRotation: Float) {
         scale = newScale.coerceIn(0.2f, 10f)
-        offsetX += newPanX
-        offsetY += newPanY
+        offsetX = newPanX
+        offsetY = newPanY
+        rotation = newRotation
+    }
+
+    fun resetTransform() {
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+        rotation = 0f
     }
 
     fun updateCurrentFrame(frame: Int) {
-        currentFrame = frame
-        engine.setCurrentFrame(frame.toUInt())
+        currentFrame = frame.coerceIn(1, totalTimelineFrames)
+        engine.setCurrentFrame(currentFrame.toUInt())
         strokesVersion++
+    }
+
+    fun expandTimeline() {
+        if (totalTimelineFrames < 240) {
+            totalTimelineFrames = (totalTimelineFrames + 24).coerceAtMost(240)
+        }
     }
 
     fun setActiveLayer(layerId: Long) {
@@ -222,10 +242,13 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         if (layers.isEmpty()) return
         isPlaying = !isPlaying
         if (isPlaying) {
+            val fps = currentProject?.fps ?: 24
+            val frameDelay = (1000L / fps).coerceAtLeast(10L)
+            val maxFrame = engine.getMaxFrameWithStrokes().toInt().coerceAtMost(totalTimelineFrames)
             playbackJob = viewModelScope.launch {
                 while (isPlaying) {
-                    delay(120L)
-                    val next = if (currentFrame >= 24) 1 else currentFrame + 1
+                    delay(frameDelay)
+                    val next = if (currentFrame >= maxFrame) 1 else currentFrame + 1
                     updateCurrentFrame(next)
                 }
             }
@@ -236,8 +259,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
-        lastX = worldX
-        lastY = worldY
         val colorInt = android.graphics.Color.argb(
             (currentColor.alpha * 255).toInt(),
             (currentColor.red * 255).toInt(),
@@ -253,6 +274,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             drawingManager.startPath(worldX, worldY, pressure)
         }
         hasUnsavedChanges = true
+        drawNonce++
     }
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
@@ -271,10 +293,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
             drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
         }
-        lastX = worldX
-        lastY = worldY
         hasUnsavedChanges = true
-        // NOTE: No strokesVersion++ during active stroke drag for 100% zero-lag performance!
+        drawNonce++ // Instantly triggers Canvas redraw for real-time stroke preview!
     }
 
     fun endStroke() {
@@ -283,7 +303,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             engine.endStroke()
         }
         hasUnsavedChanges = true
-        strokesVersion++ // Trigger state sync on stroke end
+        strokesVersion++
     }
 
     fun undo() {
