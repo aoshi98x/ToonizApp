@@ -11,7 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
@@ -22,6 +25,18 @@ import kotlin.math.sin
 
 @Composable
 fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
+    val hueColors = remember {
+        listOf(
+            Color.Red,
+            Color.Yellow,
+            Color.Green,
+            Color.Cyan,
+            Color.Blue,
+            Color.Magenta,
+            Color.Red
+        )
+    }
+
     AlertDialog(
         onDismissRequest = { viewModel.isColorPickerOpen = false },
         title = { Text("Selector de Color Estilo Rueda") },
@@ -73,42 +88,44 @@ fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val radius = size.width / 2f
 
-                        // Draw Hue Ring
-                        for (angle in 0 until 360 step 2) {
-                            val rad = Math.toRadians(angle.toDouble())
-                            val hueColor = Color.hsv(angle.toFloat(), 1f, 1f)
-                            val start = Offset(
-                                center.x + (radius * 0.75f) * cos(rad).toFloat(),
-                                center.y + (radius * 0.75f) * sin(rad).toFloat()
-                            )
-                            val end = Offset(
-                                center.x + radius * cos(rad).toFloat(),
-                                center.y + radius * sin(rad).toFloat()
-                            )
-                            drawLine(color = hueColor, start = start, end = end, strokeWidth = 6f)
-                        }
+                        // 1. Draw Hue Ring in 1 GPU Draw Call using SweepGradient
+                        val ringThickness = radius * 0.25f
+                        val ringRadius = radius - (ringThickness / 2f)
+                        val sweepBrush = Brush.sweepGradient(hueColors, center = center)
+                        drawCircle(
+                            brush = sweepBrush,
+                            radius = ringRadius,
+                            center = center,
+                            style = Stroke(width = ringThickness)
+                        )
 
-                        // Draw Saturation/Brightness Square inside
+                        // 2. Draw Saturation/Brightness Square in 2 GPU Draw Calls using Linear Gradients
                         val sqSize = radius * 0.8f
                         val left = center.x - sqSize / 2f
                         val top = center.y - sqSize / 2f
+                        val sqSize2d = Size(sqSize, sqSize)
+                        val sqTopLeft = Offset(left, top)
 
-                        for (x in 0..sqSize.toInt() step 6) {
-                            for (y in 0..sqSize.toInt() step 6) {
-                                val s = x / sqSize
-                                val b = 1f - (y / sqSize)
-                                val cellColor = Color.hsv(viewModel.toolHue, s, b)
-                                drawRect(
-                                    color = cellColor,
-                                    topLeft = Offset(left + x, top + y),
-                                    size = androidx.compose.ui.geometry.Size(6f, 6f)
-                                )
-                            }
-                        }
+                        // Horizontal Saturation Gradient (White -> Pure Hue)
+                        val pureHueColor = Color.hsv(viewModel.toolHue, 1f, 1f)
+                        val satBrush = Brush.horizontalGradient(
+                            colors = listOf(Color.White, pureHueColor),
+                            startX = left,
+                            endX = left + sqSize
+                        )
+                        drawRect(brush = satBrush, topLeft = sqTopLeft, size = sqSize2d)
 
-                        // Draw Hue Ring Indicator Handle
+                        // Vertical Brightness Gradient (Transparent -> Black)
+                        val valBrush = Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black),
+                            startY = top,
+                            endY = top + sqSize
+                        )
+                        drawRect(brush = valBrush, topLeft = sqTopLeft, size = sqSize2d)
+
+                        // 3. Draw Hue Ring Indicator Handle
                         val hueRad = Math.toRadians(viewModel.toolHue.toDouble())
-                        val hueHandleDist = radius * 0.875f
+                        val hueHandleDist = ringRadius
                         val hueHandleCenter = Offset(
                             center.x + hueHandleDist * cos(hueRad).toFloat(),
                             center.y + hueHandleDist * sin(hueRad).toFloat()
@@ -116,7 +133,7 @@ fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
                         drawCircle(color = Color.White, radius = 6f, center = hueHandleCenter)
                         drawCircle(color = Color.Black, radius = 4f, center = hueHandleCenter)
 
-                        // Draw SV Square Indicator Handle
+                        // 4. Draw SV Square Indicator Handle
                         val svHandleX = left + viewModel.toolSaturation * sqSize
                         val svHandleY = top + (1f - viewModel.toolBrightness) * sqSize
                         drawCircle(color = Color.White, radius = 6f, center = Offset(svHandleX, svHandleY))

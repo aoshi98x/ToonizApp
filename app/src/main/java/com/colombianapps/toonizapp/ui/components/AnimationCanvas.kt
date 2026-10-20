@@ -6,8 +6,10 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
@@ -15,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.unit.IntOffset
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 import kotlin.math.cos
 import kotlin.math.sin
@@ -22,6 +25,10 @@ import kotlin.math.sin
 @Composable
 fun AnimationCanvas(viewModel: StudioViewModel) {
     val focusManager = LocalFocusManager.current
+
+    // Pre-calculate onion skin opacity steps to avoid math in draw loop
+    val pastAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
+    val futureAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
 
     Box(
         modifier = Modifier
@@ -41,7 +48,8 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                         )
                     }
                 }
-                .pointerInput(viewModel.selectedTool, viewModel.isPlaying, viewModel.activeLayerId, viewModel.scale, viewModel.offsetX, viewModel.offsetY, viewModel.rotation) {
+                // Keyed ONLY on tool/state changes, NOT on scale/pan/rotation changes to avoid restarting pointer listener during pan/zoom!
+                .pointerInput(viewModel.selectedTool, viewModel.isPlaying, viewModel.activeLayerId) {
                     if (viewModel.isPlaying || viewModel.activeLayerId == 0L) return@pointerInput
                     val sheetWidth = size.width * 0.85f
                     val sheetHeight = size.height * 0.8f
@@ -63,16 +71,25 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                                 focusManager.clearFocus()
                                 val pos = pointer.position
 
+                                // Read current transform dynamically from viewModel
+                                val currentScale = viewModel.scale
+                                val currentOffsetX = viewModel.offsetX
+                                val currentOffsetY = viewModel.offsetY
+                                val currentRotation = viewModel.rotation
+
                                 // Inverse transform screen touch position to world canvas coordinates
-                                val unPanX = pos.x - viewModel.offsetX - center.x
-                                val unPanY = pos.y - viewModel.offsetY - center.y
+                                val unPanX = pos.x - currentOffsetX - center.x
+                                val unPanY = pos.y - currentOffsetY - center.y
 
-                                val rad = Math.toRadians(-viewModel.rotation.toDouble())
-                                val unRotX = unPanX * cos(rad).toFloat() - unPanY * sin(rad).toFloat()
-                                val unRotY = unPanX * sin(rad).toFloat() + unPanY * cos(rad).toFloat()
+                                val rad = Math.toRadians(-currentRotation.toDouble())
+                                val cosRad = cos(rad).toFloat()
+                                val sinRad = sin(rad).toFloat()
 
-                                val localX = (unRotX / viewModel.scale) + center.x
-                                val localY = (unRotY / viewModel.scale) + center.y
+                                val unRotX = unPanX * cosRad - unPanY * sinRad
+                                val unRotY = unPanX * sinRad + unPanY * cosRad
+
+                                val localX = (unRotX / currentScale) + center.x
+                                val localY = (unRotY / currentScale) + center.y
 
                                 val sheetX = localX - sheetLeft
                                 val sheetY = localY - sheetTop
@@ -110,6 +127,7 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
             val sheetHeight = size.height * 0.8f
             val sheetLeft = (size.width - sheetWidth) / 2f
             val sheetTop = (size.height - sheetHeight) / 2f
+            val destOffset = IntOffset(sheetLeft.toInt(), sheetTop.toInt())
 
             withTransform({
                 translate(viewModel.offsetX, viewModel.offsetY)
@@ -120,44 +138,44 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                 drawRect(
                     color = Color.White,
                     topLeft = Offset(sheetLeft, sheetTop),
-                    size = androidx.compose.ui.geometry.Size(sheetWidth, sheetHeight)
+                    size = Size(sheetWidth, sheetHeight)
                 )
 
                 // 1. Render Onion Skins (Papel Cebolla) using Bitmaps
                 if (viewModel.activeLayerId != 0L) {
                     // Past frames (Red tint)
-                    var pastAlpha = 0.35f
-                    for (i in 1..viewModel.onionSkinPast) {
+                    val pastCount = viewModel.onionSkinPast.coerceAtMost(3)
+                    for (i in 1..pastCount) {
                         val targetFrame = viewModel.currentFrame - i
                         if (targetFrame >= 1) {
                             val pastBmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, targetFrame)
+                            val alpha = pastAlphas[i - 1]
                             drawImage(
                                 pastBmp.asImageBitmap(),
-                                dstOffset = androidx.compose.ui.unit.IntOffset(sheetLeft.toInt(), sheetTop.toInt()),
-                                colorFilter = ColorFilter.tint(Color.Red.copy(alpha = pastAlpha))
+                                dstOffset = destOffset,
+                                colorFilter = ColorFilter.tint(Color.Red.copy(alpha = alpha))
                             )
                         }
-                        pastAlpha /= 3f
                     }
 
                     // Future frames (Green tint)
-                    var futureAlpha = 0.35f
-                    for (i in 1..viewModel.onionSkinFuture) {
+                    val futureCount = viewModel.onionSkinFuture.coerceAtMost(3)
+                    for (i in 1..futureCount) {
                         val targetFrame = viewModel.currentFrame + i
                         if (targetFrame <= 24) {
                             val futureBmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, targetFrame)
+                            val alpha = futureAlphas[i - 1]
                             drawImage(
                                 futureBmp.asImageBitmap(),
-                                dstOffset = androidx.compose.ui.unit.IntOffset(sheetLeft.toInt(), sheetTop.toInt()),
-                                colorFilter = ColorFilter.tint(Color.Green.copy(alpha = futureAlpha))
+                                dstOffset = destOffset,
+                                colorFilter = ColorFilter.tint(Color.Green.copy(alpha = alpha))
                             )
                         }
-                        futureAlpha /= 3f
                     }
 
                     // 2. Render Current Frame Bitmap
                     val bmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, viewModel.currentFrame)
-                    drawImage(bmp.asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(sheetLeft.toInt(), sheetTop.toInt()))
+                    drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
                 }
             }
         }

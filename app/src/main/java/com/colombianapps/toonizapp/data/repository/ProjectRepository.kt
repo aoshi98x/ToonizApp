@@ -8,9 +8,16 @@ import java.io.File
 
 class ProjectRepository(private val context: Context) {
     private val file = File(context.filesDir, "tooniz_projects.json")
+    private var cachedProjects: List<AnimationProject>? = null
 
-    fun getProjects(): List<AnimationProject> {
-        if (!file.exists()) return emptyList()
+    fun getProjects(forceRefresh: Boolean = false): List<AnimationProject> {
+        if (!forceRefresh && cachedProjects != null) {
+            return cachedProjects!!
+        }
+        if (!file.exists()) {
+            cachedProjects = emptyList()
+            return emptyList()
+        }
         try {
             val jsonString = file.readText()
             val jsonArray = JSONArray(jsonString)
@@ -29,8 +36,11 @@ class ProjectRepository(private val context: Context) {
                     )
                 )
             }
-            return list.sortedByDescending { it.lastModified }
+            val sorted = list.sortedByDescending { it.lastModified }
+            cachedProjects = sorted
+            return sorted
         } catch (e: Exception) {
+            cachedProjects = emptyList()
             return emptyList()
         }
     }
@@ -44,11 +54,13 @@ class ProjectRepository(private val context: Context) {
         } else {
             projects.add(0, updated)
         }
-        writeProjects(projects)
+        cachedProjects = projects.sortedByDescending { it.lastModified }
+        writeProjects(cachedProjects!!)
     }
 
     fun deleteProject(id: String) {
         val projects = getProjects().filter { it.id != id }
+        cachedProjects = projects
         writeProjects(projects)
     }
 

@@ -251,9 +251,9 @@ fun TimelineView(viewModel: StudioViewModel) {
                                             continue
                                         }
 
-                                        val strokesInCell = viewModel.engine.getStrokesForLayerAndFrame(layer.id, f.toUInt())
-                                        val hasStrokes = strokesInCell.isNotEmpty()
-                                        val exposure = if (hasStrokes) strokesInCell.first().exposure.toInt() else 1
+                                        val summary = viewModel.getCellSummary(layer.id, f.toUInt())
+                                        val hasStrokes = summary.hasStrokes
+                                        val exposure = summary.exposure
                                         val isCellSelected = f == viewModel.currentFrame && isLayerActive
 
                                         if (hasStrokes && exposure > 1) {

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -17,6 +18,11 @@ import uniffi.rust_core.AnimationEngine
 import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
+
+data class FrameCellSummary(
+    val hasStrokes: Boolean,
+    val exposure: Int
+)
 
 class StudioViewModel(application: Application) : AndroidViewModel(application) {
     val projectRepository = ProjectRepository(application)
@@ -33,6 +39,9 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         private set
 
     var currentColor by mutableStateOf(Color.Black)
+        private set
+
+    var currentColorArgb by mutableStateOf(android.graphics.Color.BLACK)
         private set
 
     var toolHue by mutableStateOf(0f)
@@ -100,9 +109,31 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     private var playbackJob: Job? = null
     private var autoSaveJob: Job? = null
 
+    // Cache to eliminate massive JNI overhead during TimelineView rendering
+    private val frameCellCache = mutableMapOf<Long, FrameCellSummary>()
+
     init {
         updateColorHsb(0f, 0f, 0f)
         startAutoSave()
+    }
+
+    private fun updateColorArgb() {
+        currentColorArgb = currentColor.toArgb()
+    }
+
+    private fun invalidateCellCache() {
+        frameCellCache.clear()
+        strokesVersion++
+    }
+
+    fun getCellSummary(layerId: ULong, frameIndex: UInt): FrameCellSummary {
+        val key = (layerId.toLong() shl 32) or (frameIndex.toLong() and 0xFFFFFFFFL)
+        return frameCellCache.getOrPut(key) {
+            val strokes = engine.getStrokesForLayerAndFrame(layerId, frameIndex)
+            val hasStrokes = strokes.isNotEmpty()
+            val exposure = if (hasStrokes) strokes.first().exposure.toInt() else 1
+            FrameCellSummary(hasStrokes, exposure)
+        }
     }
 
     private fun startAutoSave() {
@@ -134,6 +165,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectColor(color: Color) {
         currentColor = color
+        updateColorArgb()
         hasUnsavedChanges = true
     }
 
@@ -142,6 +174,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         toolSaturation = s
         toolBrightness = b
         currentColor = Color.hsv(h, s, b)
+        updateColorArgb()
         hasUnsavedChanges = true
     }
 
@@ -156,18 +189,21 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun setHue(hue: Float) {
         toolHue = hue.coerceIn(0f, 360f)
         currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        updateColorArgb()
         hasUnsavedChanges = true
     }
 
     fun setSaturation(sat: Float) {
         toolSaturation = sat.coerceIn(0f, 1f)
         currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        updateColorArgb()
         hasUnsavedChanges = true
     }
 
     fun setBrightness(bri: Float) {
         toolBrightness = bri.coerceIn(0f, 1f)
         currentColor = Color.hsv(toolHue, toolSaturation, toolBrightness)
+        updateColorArgb()
         hasUnsavedChanges = true
     }
 
@@ -188,7 +224,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun updateCurrentFrame(frame: Int) {
         currentFrame = frame.coerceIn(1, totalTimelineFrames)
         engine.setCurrentFrame(currentFrame.toUInt())
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun expandTimeline() {
@@ -200,7 +236,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun setActiveLayer(layerId: Long) {
         activeLayerId = layerId
         engine.setActiveLayer(layerId.toULong())
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun addLayer() {
@@ -209,7 +245,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         layers = engine.getLayers()
         setActiveLayer(newId.toLong())
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun deleteLayer(layerId: Long) {
@@ -218,14 +254,14 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         activeLayerId = layers.firstOrNull()?.id?.toLong() ?: 0L
         engine.setActiveLayer(activeLayerId.toULong())
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun adjustExposure(delta: Int) {
         if (activeLayerId == 0L) return
         engine.shiftExposure(activeLayerId.toULong(), currentFrame.toUInt(), delta)
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun updateOnionSkinPast(count: Int) {
@@ -259,12 +295,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
-        val colorInt = android.graphics.Color.argb(
-            (currentColor.alpha * 255).toInt(),
-            (currentColor.red * 255).toInt(),
-            (currentColor.green * 255).toInt(),
-            (currentColor.blue * 255).toInt()
-        )
+        val colorInt = currentColorArgb
         if (selectedTool == ToolType.PENCIL) {
             engine.startStroke(worldX, worldY, pressure, selectedTool, colorInt.toUInt(), strokeWidth)
             drawingManager.startPath(worldX, worldY, pressure)
@@ -279,12 +310,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
-        val colorInt = android.graphics.Color.argb(
-            (currentColor.alpha * 255).toInt(),
-            (currentColor.red * 255).toInt(),
-            (currentColor.green * 255).toInt(),
-            (currentColor.blue * 255).toInt()
-        )
+        val colorInt = currentColorArgb
         if (selectedTool == ToolType.PENCIL) {
             engine.addPoint(worldX, worldY, pressure)
             drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, colorInt, strokeWidth, selectedTool, strokeHardness)
@@ -303,7 +329,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             engine.endStroke()
         }
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun undo() {
@@ -311,7 +337,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         engine.undo()
         drawingManager.clear(activeLayerId, currentFrame)
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun clearCurrentFrame() {
@@ -319,7 +345,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         engine.clearCurrentFrame()
         drawingManager.clear(activeLayerId, currentFrame)
         hasUnsavedChanges = true
-        strokesVersion++
+        invalidateCellCache()
     }
 
     fun getStrokes(): List<Stroke> {
