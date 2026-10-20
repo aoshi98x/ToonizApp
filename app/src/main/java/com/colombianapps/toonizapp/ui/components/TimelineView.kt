@@ -189,11 +189,12 @@ fun TimelineView(viewModel: StudioViewModel) {
                         }
                     }
 
-                    // Scrollable levels
+                    // Scrollable levels (Fixed at max 2 levels height: 68.dp)
+                    val maxLevelsHeight = 68.dp
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 150.dp)
+                            .heightIn(max = maxLevelsHeight)
                             .verticalScroll(verticalScrollState),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
