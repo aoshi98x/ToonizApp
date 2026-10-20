@@ -13,12 +13,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.IntOffset
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
+import uniffi.rust_core.ToolType
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -176,6 +178,41 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     // 2. Render Current Frame Bitmap
                     val bmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, viewModel.currentFrame)
                     drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
+                }
+            }
+
+            // 3. Render Circular Tool Radius Cursor Guide Ring
+            val targetPos = viewModel.currentScreenPosition
+            if (targetPos != null) {
+                val baseSize = if (viewModel.selectedTool == ToolType.PENCIL) viewModel.strokeWidth else viewModel.strokeWidth * 2.5f
+                val radiusPx = (baseSize * viewModel.scale) / 2f
+
+                if (radiusPx > 0.5f) {
+                    // Contrast Outer Shadow Ring
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = radiusPx + 1f,
+                        center = targetPos,
+                        style = Stroke(width = 2.5f)
+                    )
+                    // High-visibility Inner Ring
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.9f),
+                        radius = radiusPx,
+                        center = targetPos,
+                        style = Stroke(width = 1.5f)
+                    )
+
+                    // Soft Eraser Core Radius Ring
+                    if (viewModel.selectedTool == ToolType.SOFT_ERASER) {
+                        val coreRadius = radiusPx * viewModel.strokeHardness.coerceIn(0.05f, 0.95f)
+                        drawCircle(
+                            color = Color(0xFF00CCCB).copy(alpha = 0.8f),
+                            radius = coreRadius,
+                            center = targetPos,
+                            style = Stroke(width = 1f)
+                        )
+                    }
                 }
             }
         }

@@ -62,6 +62,11 @@ class ProjectRepository(private val context: Context) {
         val projects = getProjects().filter { it.id != id }
         cachedProjects = projects
         writeProjects(projects)
+
+        val projectDir = File(context.filesDir, "project_drawings_$id")
+        if (projectDir.exists()) {
+            projectDir.deleteRecursively()
+        }
     }
 
     private fun writeProjects(projects: List<AnimationProject>) {

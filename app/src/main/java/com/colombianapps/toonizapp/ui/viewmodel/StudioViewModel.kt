@@ -14,10 +14,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.colombianapps.toonizapp.data.model.AnimationProject
 import com.colombianapps.toonizapp.data.repository.ProjectRepository
+import org.json.JSONArray
 import uniffi.rust_core.AnimationEngine
 import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
+import java.io.File
 
 data class FrameCellSummary(
     val hasStrokes: Boolean,
@@ -60,6 +62,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         private set
 
     var isColorPickerOpen by mutableStateOf(false)
+
+    var isAdjustingThickness by mutableStateOf(false)
 
     var scale by mutableStateOf(1f)
         private set
@@ -150,13 +154,90 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun loadProject(project: AnimationProject) {
         currentProject = project
         hasUnsavedChanges = false
+
+        drawingManager.clearAll()
+
+        val context = getApplication<Application>()
+        val projectDir = File(context.filesDir, "project_drawings_${project.id}")
+        val layersFile = File(projectDir, "layers.json")
+
+        val savedLayerNames = mutableListOf<String>()
+        if (layersFile.exists()) {
+            try {
+                val jsonArray = JSONArray(layersFile.readText())
+                for (i in 0 until jsonArray.length()) {
+                    savedLayerNames.add(jsonArray.getString(i))
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Reset layers in Rust Engine
+        val existingLayers = engine.getLayers()
+        for (l in existingLayers) {
+            engine.deleteLayer(l.id)
+        }
+
+        val restoredLayerIds = mutableListOf<Long>()
+        if (savedLayerNames.isNotEmpty()) {
+            for (name in savedLayerNames) {
+                val newId = engine.addLayer(name)
+                restoredLayerIds.add(newId.toLong())
+            }
+        } else {
+            val defaultId = engine.addLayer("Nivel 1")
+            restoredLayerIds.add(defaultId.toLong())
+        }
+
+        layers = engine.getLayers()
+        activeLayerId = layers.firstOrNull()?.id?.toLong() ?: 0L
+        engine.setActiveLayer(activeLayerId.toULong())
+
+        // Load Bitmaps from disk into DrawingManager
+        val loadedCells = drawingManager.loadBitmaps(context, project.id)
+
+        // Populate stroke markers in Rust Engine for timeline frame cells
+        for ((layerId, frameIndex) in loadedCells) {
+            engine.setActiveLayer(layerId.toULong())
+            engine.setCurrentFrame(frameIndex.toUInt())
+            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+            engine.endStroke()
+        }
+
+        engine.setActiveLayer(activeLayerId.toULong())
+        engine.setCurrentFrame(1.toUInt())
+        currentFrame = 1
+
+        invalidateCellCache()
     }
 
     fun saveProject() {
-        currentProject?.let {
-            projectRepository.saveProject(it)
-            hasUnsavedChanges = false
+        val proj = currentProject ?: return
+        projectRepository.saveProject(proj)
+
+        val context = getApplication<Application>()
+        val projectDir = File(context.filesDir, "project_drawings_${proj.id}")
+        if (!projectDir.exists()) {
+            projectDir.mkdirs()
         }
+
+        // Save layers.json
+        val layersFile = File(projectDir, "layers.json")
+        try {
+            val jsonArray = JSONArray()
+            for (layer in layers) {
+                jsonArray.put(layer.name)
+            }
+            layersFile.writeText(jsonArray.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Save bitmaps to disk
+        drawingManager.saveBitmaps(context, proj.id)
+
+        hasUnsavedChanges = false
     }
 
     fun selectTool(tool: ToolType) {

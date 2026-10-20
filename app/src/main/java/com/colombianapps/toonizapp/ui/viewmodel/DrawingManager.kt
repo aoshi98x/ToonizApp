@@ -1,12 +1,16 @@
 package com.colombianapps.toonizapp.ui.viewmodel
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.BlurMaskFilter
 import uniffi.rust_core.ToolType
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Random
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -131,5 +135,69 @@ class DrawingManager {
     fun clear(layerId: Long, frameIndex: Int) {
         val key = makeKey(layerId, frameIndex)
         bitmaps[key]?.eraseColor(android.graphics.Color.TRANSPARENT)
+    }
+
+    fun clearAll() {
+        bitmaps.values.forEach { it.recycle() }
+        bitmaps.clear()
+    }
+
+    fun saveBitmaps(context: Context, projectId: String) {
+        val projectDir = File(context.filesDir, "project_drawings_$projectId")
+        if (!projectDir.exists()) {
+            projectDir.mkdirs()
+        }
+
+        for ((key, bmp) in bitmaps) {
+            val layerId = key shr 32
+            val frameIndex = (key and 0xFFFFFFFFL).toInt()
+            val file = File(projectDir, "${layerId}_$frameIndex.png")
+            
+            try {
+                FileOutputStream(file).use { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun loadBitmaps(context: Context, projectId: String): Set<Pair<Long, Int>> {
+        clearAll()
+        val loadedCells = mutableSetOf<Pair<Long, Int>>()
+        val projectDir = File(context.filesDir, "project_drawings_$projectId")
+        if (!projectDir.exists()) return loadedCells
+
+        val files = projectDir.listFiles() ?: return loadedCells
+        for (file in files) {
+            if (file.name.endsWith(".png")) {
+                val parts = file.name.removeSuffix(".png").split("_")
+                if (parts.size == 2) {
+                    val layerId = parts[0].toLongOrNull() ?: continue
+                    val frameIndex = parts[1].toIntOrNull() ?: continue
+                    try {
+                        val bmp = BitmapFactory.decodeFile(file.absolutePath)
+                        if (bmp != null) {
+                            val mutableBmp = bmp.copy(Bitmap.Config.ARGB_8888, true)
+                            bmp.recycle()
+                            val key = makeKey(layerId, frameIndex)
+                            bitmaps[key] = mutableBmp
+                            loadedCells.add(Pair(layerId, frameIndex))
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+        return loadedCells
+    }
+
+    fun deleteProjectDrawings(context: Context, projectId: String) {
+        val projectDir = File(context.filesDir, "project_drawings_$projectId")
+        if (projectDir.exists()) {
+            projectDir.deleteRecursively()
+        }
     }
 }
