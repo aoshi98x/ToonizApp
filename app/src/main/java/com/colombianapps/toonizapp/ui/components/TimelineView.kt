@@ -136,6 +136,22 @@ fun TimelineView(viewModel: StudioViewModel) {
                         Text("+Exp", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
 
+                    // Duplicate Frame button
+                    Button(
+                        onClick = { viewModel.duplicateCurrentFrame() },
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(2.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ActiveCyan,
+                            contentColor = BgDark
+                        )
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Duplicar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+
                     // Add Level button
                     Button(
                         onClick = { viewModel.addLayer() },

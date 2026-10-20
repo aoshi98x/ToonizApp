@@ -59,13 +59,22 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     val sheetTop = (size.height - sheetHeight) / 2f
                     val center = Offset(size.width / 2f, size.height / 2f)
 
+                    var lastStylusTime = 0L
+
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
+                            if (event.changes.any { it.type == PointerType.Stylus }) {
+                                lastStylusTime = System.currentTimeMillis()
+                            }
+
                             val pointer = event.changes.firstOrNull { it.pressed }
                             if (pointer != null && event.changes.size == 1) {
-                                // Palm Rejection
-                                if (pointer.type == PointerType.Touch && event.changes.any { it.type == PointerType.Stylus }) {
+                                // Palm Rejection: 3.5s cooldown after stylus activity
+                                val timeSinceStylus = System.currentTimeMillis() - lastStylusTime
+                                val isStylusCoolingDown = timeSinceStylus < 3500L
+
+                                if (pointer.type == PointerType.Touch && (event.changes.any { it.type == PointerType.Stylus } || isStylusCoolingDown)) {
                                     pointer.consume()
                                     continue
                                 }

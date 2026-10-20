@@ -69,6 +69,20 @@ class DrawingManager {
         }
     }
 
+    fun getMaxFrame(layerId: Long): Int {
+        var maxF = 1
+        for (key in bitmaps.keys) {
+            val lId = key shr 32
+            if (lId == layerId) {
+                val f = (key and 0xFFFFFFFFL).toInt()
+                if (f > maxF) {
+                    maxF = f
+                }
+            }
+        }
+        return maxF
+    }
+
     fun startPath(x: Float, y: Float, pressure: Float) {
         lastX = x
         lastY = y
@@ -150,6 +164,48 @@ class DrawingManager {
         val key = makeKey(layerId, frameIndex)
         val bmp = bitmaps[key] ?: return null
         return bmp.copy(Bitmap.Config.ARGB_8888, true)
+    }
+
+    fun shiftExposureBitmaps(layerId: Long, startFrame: Int, delta: Int, currentExposure: Int) {
+        if (delta == 0) return
+        val boundary = startFrame + currentExposure
+
+        if (delta > 0) {
+            val targetKeys = bitmaps.keys.filter { key ->
+                val lId = key shr 32
+                val fIndex = (key and 0xFFFFFFFFL).toInt()
+                lId == layerId && fIndex >= boundary
+            }.sortedByDescending { (it and 0xFFFFFFFFL).toInt() }
+
+            for (oldKey in targetKeys) {
+                val fIndex = (oldKey and 0xFFFFFFFFL).toInt()
+                val newFIndex = fIndex + delta
+                val newKey = makeKey(layerId, newFIndex)
+
+                val bmp = bitmaps.remove(oldKey)
+                if (bmp != null) {
+                    bitmaps[newKey] = bmp
+                }
+            }
+        } else {
+            val shrinkAmount = -delta
+            val targetKeys = bitmaps.keys.filter { key ->
+                val lId = key shr 32
+                val fIndex = (key and 0xFFFFFFFFL).toInt()
+                lId == layerId && fIndex >= boundary
+            }.sortedBy { (it and 0xFFFFFFFFL).toInt() }
+
+            for (oldKey in targetKeys) {
+                val fIndex = (oldKey and 0xFFFFFFFFL).toInt()
+                val newFIndex = (fIndex - shrinkAmount).coerceAtLeast(boundary + delta)
+                val newKey = makeKey(layerId, newFIndex)
+
+                val bmp = bitmaps.remove(oldKey)
+                if (bmp != null) {
+                    bitmaps[newKey] = bmp
+                }
+            }
+        }
     }
 
     fun clearAll() {

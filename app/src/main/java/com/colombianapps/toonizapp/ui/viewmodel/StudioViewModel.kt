@@ -148,6 +148,18 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         canRedo = redoMap[key]?.isNotEmpty() == true
     }
 
+    fun getMaxFrameWithStrokes(): Int {
+        var maxF = 1
+        for (layer in layers) {
+            val layerMax = drawingManager.getMaxFrame(layer.id.toLong())
+            if (layerMax > maxF) {
+                maxF = layerMax
+            }
+        }
+        val engineMax = engine.getMaxFrameWithStrokes().toInt()
+        return maxOf(maxF, engineMax, 1)
+    }
+
     fun getCellSummary(layerId: ULong, frameIndex: UInt): FrameCellSummary {
         val key = (layerId.toLong() shl 32) or (frameIndex.toLong() and 0xFFFFFFFFL)
         return frameCellCache.getOrPut(key) {
@@ -365,8 +377,48 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun adjustExposure(delta: Int) {
         if (activeLayerId == 0L) return
+        val summary = getCellSummary(activeLayerId.toULong(), currentFrame.toUInt())
+        val currentExp = summary.exposure
+
+        // Shift bitmaps in DrawingManager
+        drawingManager.shiftExposureBitmaps(activeLayerId, currentFrame, delta, currentExp)
+
+        // Shift strokes in Rust Engine
         engine.shiftExposure(activeLayerId.toULong(), currentFrame.toUInt(), delta)
+
         hasUnsavedChanges = true
+        drawNonce++
+        invalidateCellCache()
+    }
+
+    fun duplicateCurrentFrame() {
+        if (activeLayerId == 0L) return
+        val sourceFrame = currentFrame
+        val targetFrame = currentFrame + 1
+
+        // If targetFrame has drawing, shift subsequent frames forward
+        val summaryNext = getCellSummary(activeLayerId.toULong(), targetFrame.toUInt())
+        if (summaryNext.hasStrokes) {
+            drawingManager.shiftExposureBitmaps(activeLayerId, targetFrame, 1, 1)
+            engine.shiftExposure(activeLayerId.toULong(), targetFrame.toUInt(), 1)
+        }
+
+        // Copy bitmap independently to targetFrame
+        val sourceBmp = drawingManager.getBitmap(activeLayerId, sourceFrame)
+        val copyBmp = sourceBmp.copy(Bitmap.Config.ARGB_8888, true)
+        drawingManager.setBitmap(activeLayerId, targetFrame, copyBmp)
+        copyBmp.recycle()
+
+        // Register stroke entry in Rust Engine for targetFrame
+        engine.setActiveLayer(activeLayerId.toULong())
+        engine.setCurrentFrame(targetFrame.toUInt())
+        engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+        engine.endStroke()
+
+        // Advance to duplicated targetFrame
+        updateCurrentFrame(targetFrame)
+        hasUnsavedChanges = true
+        drawNonce++
         invalidateCellCache()
     }
 
@@ -385,13 +437,21 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         isPlaying = !isPlaying
         if (isPlaying) {
             val fps = currentProject?.fps ?: 24
-            val frameDelay = (1000L / fps).coerceAtLeast(10L)
-            val maxFrame = engine.getMaxFrameWithStrokes().toInt().coerceAtMost(totalTimelineFrames)
+            val maxFrame = getMaxFrameWithStrokes()
+            
             playbackJob = viewModelScope.launch {
+                val startSystemTime = System.currentTimeMillis()
+                var frameIndex = currentFrame
+                var stepCount = 0L
+
                 while (isPlaying) {
-                    delay(frameDelay)
-                    val next = if (currentFrame >= maxFrame) 1 else currentFrame + 1
-                    updateCurrentFrame(next)
+                    stepCount++
+                    val targetTime = startSystemTime + (stepCount * 1000L / fps)
+                    val delayMs = (targetTime - System.currentTimeMillis()).coerceAtLeast(1L)
+                    delay(delayMs)
+
+                    frameIndex = if (frameIndex >= maxFrame) 1 else frameIndex + 1
+                    updateCurrentFrame(frameIndex)
                 }
             }
         } else {
