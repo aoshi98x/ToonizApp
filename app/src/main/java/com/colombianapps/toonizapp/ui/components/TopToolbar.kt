@@ -93,24 +93,30 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClic
                     modifier = Modifier.width(80.dp),
                     colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
                 )
-                OutlinedTextField(
-                    value = viewModel.strokeWidth.toInt().toString(),
-                    onValueChange = {
-                        val parsed = it.toFloatOrNull() ?: 1f
-                        viewModel.updateStrokeWidth(parsed)
-                    },
-                    modifier = Modifier.width(68.dp).height(42.dp),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.White),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    shape = RoundedCornerShape(3.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CardBg,
-                        unfocusedContainerColor = CardBg,
-                        focusedBorderColor = ActiveCyan,
-                        unfocusedBorderColor = BorderCyan
+                Box(
+                    modifier = Modifier
+                        .width(68.dp)
+                        .height(34.dp)
+                        .background(CardBg, RoundedCornerShape(3.dp))
+                        .border(1.dp, BorderCyan, RoundedCornerShape(3.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = viewModel.strokeWidth.toInt().toString(),
+                        onValueChange = {
+                            val parsed = it.toFloatOrNull() ?: 1f
+                            viewModel.updateStrokeWidth(parsed)
+                        },
+                        textStyle = LocalTextStyle.current.copy(
+                            fontSize = 11.sp,
+                            color = Color.White,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
                     )
-                )
+                }
             }
 
             // Color Picker Button
@@ -132,12 +138,12 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClic
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 10.sp, color = TextMuted)
+                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
                 Slider(
                     value = viewModel.strokeHardness,
                     onValueChange = { viewModel.updateStrokeHardness(it) },
                     valueRange = 0f..1f,
-                    modifier = Modifier.width(80.dp),
+                    modifier = Modifier.width(70.dp),
                     colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
                 )
             }
