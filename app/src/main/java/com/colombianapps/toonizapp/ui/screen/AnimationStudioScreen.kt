@@ -29,7 +29,11 @@ private val BgDark = Color(0xFF071215)
 private val PanelBg = Color(0xFF0D1E22)
 
 @Composable
-fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick: () -> Unit) {
+fun AnimationStudioScreen(
+    viewModel: StudioViewModel = viewModel(),
+    onBackClick: () -> Unit,
+    onExportClick: () -> Unit
+) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Canvas
         AnimationCanvas(viewModel = viewModel)
@@ -85,7 +89,7 @@ fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick:
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                TopToolbar(viewModel = viewModel, onBackClick = onBackClick)
+                TopToolbar(viewModel = viewModel, onBackClick = onBackClick, onExportClick = onExportClick)
             }
 
             // Reset Transform Button
@@ -121,6 +125,48 @@ fun AnimationStudioScreen(viewModel: StudioViewModel = viewModel(), onBackClick:
                     .fillMaxWidth()
             ) {
                 TimelineView(viewModel = viewModel)
+            }
+        }
+
+        // Saving / Loading Progress Overlay
+        if (viewModel.isSaving || viewModel.isLoading) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color.Black.copy(alpha = 0.75f)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = PanelBg,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = ActiveCyan,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Text(
+                                text = if (viewModel.isSaving) "Procesando el Proyecto..." else "Cargando Proyecto...",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Por favor espera un momento mientras se procesan los datos.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF8FA8B0)
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.colombianapps.toonizapp.data.repository.ProjectRepository
 import com.colombianapps.toonizapp.ui.components.CreateProjectDialog
 import com.colombianapps.toonizapp.ui.screen.AnimationStudioScreen
+import com.colombianapps.toonizapp.ui.screen.ExportScreen
 import com.colombianapps.toonizapp.ui.screen.ProjectManagerScreen
 import com.colombianapps.toonizapp.ui.screen.SplashScreen
 import com.colombianapps.toonizapp.ui.theme.ToonizAppTheme
@@ -22,7 +23,8 @@ import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 enum class AppScreen {
     SPLASH,
     PROJECT_MANAGER,
-    EDITOR
+    EDITOR,
+    EXPORT
 }
 
 class MainActivity : ComponentActivity() {
@@ -60,8 +62,8 @@ class MainActivity : ComponentActivity() {
                                 projects = projects,
                                 onCreateProjectClick = { showCreateDialog = true },
                                 onProjectClick = { proj ->
-                                    viewModel.loadProject(proj)
                                     currentScreen = AppScreen.EDITOR
+                                    viewModel.loadProject(proj)
                                 },
                                 onDeleteProject = { id ->
                                     repository.deleteProject(id)
@@ -75,9 +77,9 @@ class MainActivity : ComponentActivity() {
                                     onCreate = { newProj ->
                                         repository.saveProject(newProj)
                                         projects = repository.getProjects()
-                                        viewModel.loadProject(newProj)
                                         showCreateDialog = false
                                         currentScreen = AppScreen.EDITOR
+                                        viewModel.loadProject(newProj)
                                     }
                                 )
                             }
@@ -86,9 +88,21 @@ class MainActivity : ComponentActivity() {
                             AnimationStudioScreen(
                                 viewModel = viewModel,
                                 onBackClick = {
-                                    viewModel.saveProject()
-                                    projects = repository.getProjects()
-                                    currentScreen = AppScreen.PROJECT_MANAGER
+                                    viewModel.saveProject {
+                                        projects = repository.getProjects()
+                                        currentScreen = AppScreen.PROJECT_MANAGER
+                                    }
+                                },
+                                onExportClick = {
+                                    currentScreen = AppScreen.EXPORT
+                                }
+                            )
+                        }
+                        AppScreen.EXPORT -> {
+                            ExportScreen(
+                                viewModel = viewModel,
+                                onBackClick = {
+                                    currentScreen = AppScreen.EDITOR
                                 }
                             )
                         }

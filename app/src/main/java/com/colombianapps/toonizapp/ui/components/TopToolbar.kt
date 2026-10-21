@@ -32,7 +32,7 @@ private val ActiveCyan = Color(0xFF00CCCB)
 private val TextMuted = Color(0xFF8FA8B0)
 
 @Composable
-fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
+fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClick: () -> Unit) {
     if (viewModel.isColorPickerOpen) {
         ColorWheelPickerDialog(viewModel = viewModel)
     }
@@ -132,12 +132,12 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
+                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 10.sp, color = TextMuted)
                 Slider(
                     value = viewModel.strokeHardness,
                     onValueChange = { viewModel.updateStrokeHardness(it) },
                     valueRange = 0f..1f,
-                    modifier = Modifier.width(70.dp),
+                    modifier = Modifier.width(80.dp),
                     colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
                 )
             }
@@ -166,6 +166,23 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit) {
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(3.dp))
                 Text("Guardar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Render / Export Button
+            Button(
+                onClick = onExportClick,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(3.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF165257),
+                    contentColor = Color.White
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
+            ) {
+                Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(3.dp))
+                Text("Render", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
 
             // Undo, Redo & Clear

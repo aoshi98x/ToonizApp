@@ -69,7 +69,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
                     )
 
                     Text(
-                        text = "Estudio de Animación Profesional · v2.4 Pro",
+                        text = "Animación profesional al alcance de todos. · v0.1 Alpha",
                         fontSize = 13.sp,
                         color = TextMuted
                     )

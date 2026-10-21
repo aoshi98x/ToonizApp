@@ -16,7 +16,9 @@ import kotlinx.coroutines.launch
 import com.colombianapps.toonizapp.data.model.AnimationProject
 import com.colombianapps.toonizapp.data.repository.ProjectRepository
 import org.json.JSONArray
+import org.json.JSONObject
 import uniffi.rust_core.AnimationEngine
+import uniffi.rust_core.Layer
 import uniffi.rust_core.OnionStroke
 import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
@@ -25,6 +27,12 @@ import java.util.ArrayDeque
 
 data class FrameCellSummary(
     val hasStrokes: Boolean,
+    val exposure: Int
+)
+
+data class ClipboardEntry(
+    val relativeFrameIndex: Int,
+    val bitmap: Bitmap?,
     val exposure: Int
 )
 
@@ -37,6 +45,12 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         private set
 
     var hasUnsavedChanges by mutableStateOf(false)
+        private set
+
+    var isSaving by mutableStateOf(false)
+        private set
+
+    var isLoading by mutableStateOf(false)
         private set
 
     var selectedTool by mutableStateOf(ToolType.PENCIL)
@@ -118,6 +132,18 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     var canRedo by mutableStateOf(false)
         private set
 
+    // Multi-Selection State for Timeline
+    var isSelectionMode by mutableStateOf(false)
+        private set
+
+    var selectedFrames by mutableStateOf<Set<Int>>(emptySet())
+        private set
+
+    var hasClipboardData by mutableStateOf(false)
+        private set
+
+    private var copiedEntries = listOf<ClipboardEntry>()
+
     private var playbackJob: Job? = null
     private var autoSaveJob: Job? = null
 
@@ -164,7 +190,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 maxF = layerMax
             }
         }
-        return maxOf(maxF, 1)
+        val engineMax = engine.getMaxFrameWithStrokes().toInt()
+        return maxOf(maxF, engineMax, 1)
     }
 
     fun getCellSummary(layerId: ULong, frameIndex: UInt): FrameCellSummary {
@@ -178,6 +205,116 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    // -------------------------------------------------------------------------
+    // TIMELINE MULTI-SELECTION & CLIPBOARD ACTIONS
+    // -------------------------------------------------------------------------
+    fun toggleFrameSelection(frame: Int) {
+        if (!isSelectionMode) {
+            isSelectionMode = true
+            selectedFrames = setOf(frame)
+            return
+        }
+        selectedFrames = if (selectedFrames.contains(frame)) {
+            val updated = selectedFrames - frame
+            if (updated.isEmpty()) isSelectionMode = false
+            updated
+        } else {
+            selectedFrames + frame
+        }
+    }
+
+    fun clearSelection() {
+        isSelectionMode = false
+        selectedFrames = emptySet()
+    }
+
+    fun copySelectedFrames() {
+        if (activeLayerId == 0L || selectedFrames.isEmpty()) return
+        val sorted = selectedFrames.sorted()
+        val firstFrame = sorted.first()
+
+        copiedEntries.forEach { it.bitmap?.recycle() }
+
+        val entries = mutableListOf<ClipboardEntry>()
+        for (f in sorted) {
+            val bmp = drawingManager.copyBitmap(activeLayerId, f)
+            val summary = getCellSummary(activeLayerId.toULong(), f.toUInt())
+            entries.add(ClipboardEntry(f - firstFrame, bmp, summary.exposure))
+        }
+        copiedEntries = entries
+        hasClipboardData = true
+        clearSelection()
+    }
+
+    fun deleteSelectedFrames() {
+        if (activeLayerId == 0L || selectedFrames.isEmpty()) return
+        for (f in selectedFrames) {
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(f.toUInt())
+            engine.clearCurrentFrame()
+            drawingManager.clear(activeLayerId, f)
+        }
+        hasUnsavedChanges = true
+        drawNonce++
+        clearSelection()
+        invalidateCellCache()
+    }
+
+    fun pasteToSelectedFrames() {
+        if (activeLayerId == 0L || copiedEntries.isEmpty()) return
+
+        val targetFrames = if (selectedFrames.isNotEmpty()) selectedFrames.sorted() else listOf(currentFrame)
+        val startFrame = targetFrames.first()
+        val totalTargetFrames = targetFrames.size
+
+        // Smart Paste logic: 1 drawing into multiple frames -> set initial drawing & extend exposure
+        if (copiedEntries.size == 1 && totalTargetFrames > 1) {
+            val entry = copiedEntries.first()
+
+            val currentSummary = getCellSummary(activeLayerId.toULong(), startFrame.toUInt())
+            if (currentSummary.hasStrokes) {
+                drawingManager.shiftExposureBitmaps(activeLayerId, startFrame, totalTargetFrames, 1)
+                engine.shiftExposure(activeLayerId.toULong(), startFrame.toUInt(), totalTargetFrames)
+            }
+
+            if (entry.bitmap != null) {
+                val copyBmp = entry.bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                drawingManager.setBitmap(activeLayerId, startFrame, copyBmp)
+                copyBmp.recycle()
+            }
+
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(startFrame.toUInt())
+            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+            engine.endStroke()
+
+            if (totalTargetFrames > 1) {
+                engine.shiftExposure(activeLayerId.toULong(), startFrame.toUInt(), totalTargetFrames - 1)
+            }
+
+            updateCurrentFrame(startFrame)
+        } else {
+            for (entry in copiedEntries) {
+                val destFrame = startFrame + entry.relativeFrameIndex
+                if (entry.bitmap != null) {
+                    val copyBmp = entry.bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                    drawingManager.setBitmap(activeLayerId, destFrame, copyBmp)
+                    copyBmp.recycle()
+                }
+                engine.setActiveLayer(activeLayerId.toULong())
+                engine.setCurrentFrame(destFrame.toUInt())
+                engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+                engine.endStroke()
+            }
+            updateCurrentFrame(startFrame)
+        }
+
+        hasUnsavedChanges = true
+        drawNonce++
+        clearSelection()
+        invalidateCellCache()
+    }
+
     private fun startAutoSave() {
         autoSaveJob = viewModelScope.launch {
             while (true) {
@@ -189,92 +326,163 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun loadProject(project: AnimationProject) {
+    fun loadProject(project: AnimationProject, onFinished: (() -> Unit)? = null) {
         stopPlayback()
+        isLoading = true
         currentProject = project
         hasUnsavedChanges = false
 
-        drawingManager.clearAll()
-        undoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
-        redoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
-        undoMap.clear()
-        redoMap.clear()
-
-        val context = getApplication<Application>()
-        val projectDir = File(context.filesDir, "project_drawings_${project.id}")
-        val layersFile = File(projectDir, "layers.json")
-
-        val savedLayerNames = mutableListOf<String>()
-        if (layersFile.exists()) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val jsonArray = JSONArray(layersFile.readText())
-                for (i in 0 until jsonArray.length()) {
-                    savedLayerNames.add(jsonArray.getString(i))
+                drawingManager.clearAll()
+                undoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
+                redoMap.values.forEach { stack -> stack.forEach { it.recycle() }; stack.clear() }
+                undoMap.clear()
+                redoMap.clear()
+
+                val context = getApplication<Application>()
+                val projectDir = File(context.filesDir, "project_drawings_${project.id}")
+                val layersFile = File(projectDir, "layers.json")
+
+                val savedLayerNames = mutableListOf<String>()
+                if (layersFile.exists()) {
+                    try {
+                        val jsonArray = JSONArray(layersFile.readText())
+                        for (i in 0 until jsonArray.length()) {
+                            savedLayerNames.add(jsonArray.getString(i))
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // Reset layers in Rust Engine
+                val existingLayers = engine.getLayers()
+                for (l in existingLayers) {
+                    engine.deleteLayer(l.id)
+                }
+
+                if (savedLayerNames.isNotEmpty()) {
+                    for (name in savedLayerNames) {
+                        engine.addLayer(name)
+                    }
+                } else {
+                    engine.addLayer("Nivel 1")
+                }
+
+                val layersSnapshot = engine.getLayers()
+                val activeLayerSnapshot = layersSnapshot.firstOrNull()?.id?.toLong() ?: 0L
+
+                // Load Bitmaps from disk into DrawingManager
+                val loadedCells = drawingManager.loadBitmaps(context, project.id)
+
+                // Load exposures.json
+                val exposuresFile = File(projectDir, "exposures.json")
+                val restoredExposures = mutableMapOf<String, Int>()
+                if (exposuresFile.exists()) {
+                    try {
+                        val jsonArray = JSONArray(exposuresFile.readText())
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            val lId = obj.getLong("layerId")
+                            val fIndex = obj.getInt("frameIndex")
+                            val exp = obj.getInt("exposure")
+                            restoredExposures["${lId}_$fIndex"] = exp
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // Populate stroke markers and exposures in Rust Engine
+                for ((layerId, frameIndex) in loadedCells) {
+                    engine.setActiveLayer(layerId.toULong())
+                    engine.setCurrentFrame(frameIndex.toUInt())
+                    engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+                    engine.endStroke()
+
+                    val exp = restoredExposures["${layerId}_$frameIndex"] ?: 1
+                    if (exp > 1) {
+                        engine.shiftExposure(layerId.toULong(), frameIndex.toUInt(), exp - 1)
+                    }
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    layers = layersSnapshot
+                    activeLayerId = activeLayerSnapshot
+                    engine.setActiveLayer(activeLayerId.toULong())
+                    engine.setCurrentFrame(1.toUInt())
+                    currentFrame = 1
+
+                    updateUndoRedoStates()
+                    invalidateCellCache()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isLoading = false
+                    onFinished?.invoke()
+                }
             }
         }
-
-        // Reset layers in Rust Engine
-        val existingLayers = engine.getLayers()
-        for (l in existingLayers) {
-            engine.deleteLayer(l.id)
-        }
-
-        val restoredLayerIds = mutableListOf<Long>()
-        if (savedLayerNames.isNotEmpty()) {
-            for (name in savedLayerNames) {
-                val newId = engine.addLayer(name)
-                restoredLayerIds.add(newId.toLong())
-            }
-        } else {
-            val defaultId = engine.addLayer("Nivel 1")
-            restoredLayerIds.add(defaultId.toLong())
-        }
-
-        layers = engine.getLayers()
-        activeLayerId = layers.firstOrNull()?.id?.toLong() ?: 0L
-        engine.setActiveLayer(activeLayerId.toULong())
-
-        // Load Bitmaps from disk into DrawingManager
-        drawingManager.loadBitmaps(context, project.id)
-
-        engine.setActiveLayer(activeLayerId.toULong())
-        engine.setCurrentFrame(1.toUInt())
-        currentFrame = 1
-
-        updateUndoRedoStates()
-        invalidateCellCache()
     }
 
-    fun saveProject() {
+    fun saveProject(onFinished: (() -> Unit)? = null) {
         stopPlayback()
         val proj = currentProject ?: return
-        projectRepository.saveProject(proj)
+        isSaving = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                projectRepository.saveProject(proj)
+                val context = getApplication<Application>()
+                val projectDir = File(context.filesDir, "project_drawings_${proj.id}")
+                if (!projectDir.exists()) {
+                    projectDir.mkdirs()
+                }
 
-        val context = getApplication<Application>()
-        val projectDir = File(context.filesDir, "project_drawings_${proj.id}")
-        if (!projectDir.exists()) {
-            projectDir.mkdirs()
-        }
+                // Save layers.json
+                val layersFile = File(projectDir, "layers.json")
+                val jsonArray = JSONArray()
+                for (layer in layers) {
+                    jsonArray.put(layer.name)
+                }
+                layersFile.writeText(jsonArray.toString())
 
-        // Save layers.json
-        val layersFile = File(projectDir, "layers.json")
-        try {
-            val jsonArray = JSONArray()
-            for (layer in layers) {
-                jsonArray.put(layer.name)
+                // Save exposures.json
+                val exposuresFile = File(projectDir, "exposures.json")
+                val expArray = JSONArray()
+                for (layer in layers) {
+                    for (f in 1..totalTimelineFrames) {
+                        val strokes = engine.getStrokesForLayerAndFrame(layer.id, f.toUInt())
+                        if (strokes.isNotEmpty()) {
+                            val stroke = strokes.first()
+                            if (stroke.exposure > 1u && stroke.frameIndex.toInt() == f) {
+                                val obj = JSONObject().apply {
+                                    put("layerId", layer.id)
+                                    put("frameIndex", f)
+                                    put("exposure", stroke.exposure.toInt())
+                                }
+                                expArray.put(obj)
+                            }
+                        }
+                    }
+                }
+                exposuresFile.writeText(expArray.toString())
+
+                // Save bitmaps to disk
+                drawingManager.saveBitmaps(context, proj.id)
+
+                hasUnsavedChanges = false
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isSaving = false
+                    onFinished?.invoke()
+                }
             }
-            layersFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
-
-        // Save bitmaps to disk
-        drawingManager.saveBitmaps(context, proj.id)
-
-        hasUnsavedChanges = false
     }
 
     fun selectTool(tool: ToolType) {
@@ -368,6 +576,50 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         invalidateCellCache()
     }
 
+    private val layerVisibilityMap = mutableMapOf<Long, Boolean>()
+
+    fun isLayerVisible(layerId: Long): Boolean {
+        return layerVisibilityMap[layerId] ?: true
+    }
+
+    fun toggleLayerVisibility(layerId: Long) {
+        val current = isLayerVisible(layerId)
+        layerVisibilityMap[layerId] = !current
+        strokesVersion++
+        drawNonce++
+    }
+
+    fun moveLayerToIndex(layerId: Long, newIndex: Int) {
+        val mutableLayers = layers.toMutableList()
+        val currentIndex = mutableLayers.indexOfFirst { it.id.toLong() == layerId }
+        if (currentIndex < 0) return
+        val item = mutableLayers.removeAt(currentIndex)
+        val clampedIndex = newIndex.coerceIn(0, mutableLayers.size)
+        mutableLayers.add(clampedIndex, item)
+        layers = mutableLayers
+
+        for (l in engine.getLayers()) {
+            engine.deleteLayer(l.id)
+        }
+        for (l in mutableLayers) {
+            engine.addLayer(l.name)
+        }
+        engine.setActiveLayer(activeLayerId.toULong())
+
+        hasUnsavedChanges = true
+        strokesVersion++
+        drawNonce++
+        invalidateCellCache()
+    }
+
+    fun renameLayer(layerId: Long, newName: String) {
+        val cleanName = if (newName.isBlank()) "Nivel Sin Nombre" else newName
+        layers = layers.map {
+            if (it.id.toLong() == layerId) Layer(it.id, cleanName) else it
+        }
+        hasUnsavedChanges = true
+    }
+
     fun deleteLayer(layerId: Long) {
         engine.deleteLayer(layerId.toULong())
         layers = engine.getLayers()
@@ -379,18 +631,41 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun adjustExposure(delta: Int) {
         if (activeLayerId == 0L) return
-        val summary = getCellSummary(activeLayerId.toULong(), currentFrame.toUInt())
-        val currentExp = summary.exposure
+        val strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), currentFrame.toUInt())
+        val actualStartFrame = if (strokes.isNotEmpty()) strokes.first().frameIndex.toInt() else currentFrame
+        val currentExp = if (strokes.isNotEmpty()) strokes.first().exposure.toInt() else 1
 
-        // Shift bitmaps in DrawingManager
-        drawingManager.shiftExposureBitmaps(activeLayerId, currentFrame, delta, currentExp)
-
-        // Shift strokes in Rust Engine
-        engine.shiftExposure(activeLayerId.toULong(), currentFrame.toUInt(), delta)
+        if (delta < 0 && currentExp <= 1) {
+            // Delete 1-frame drawing and shift subsequent frames left
+            drawingManager.clear(activeLayerId, actualStartFrame)
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(actualStartFrame.toUInt())
+            engine.clearCurrentFrame()
+            drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame + 1, -1, 1)
+            engine.shiftExposure(activeLayerId.toULong(), actualStartFrame.toUInt(), -1)
+        } else {
+            drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame, delta, currentExp)
+            engine.shiftExposure(activeLayerId.toULong(), actualStartFrame.toUInt(), delta)
+        }
 
         hasUnsavedChanges = true
         drawNonce++
         invalidateCellCache()
+    }
+
+    fun createNewDrawingAtCurrentFrame() {
+        if (activeLayerId == 0L) return
+        val summary = getCellSummary(activeLayerId.toULong(), currentFrame.toUInt())
+        if (!summary.hasStrokes) {
+            drawingManager.getBitmap(activeLayerId, currentFrame)
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(currentFrame.toUInt())
+            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+            engine.endStroke()
+            hasUnsavedChanges = true
+            drawNonce++
+            invalidateCellCache()
+        }
     }
 
     fun duplicateCurrentFrame() {
@@ -398,26 +673,22 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         val sourceFrame = currentFrame
         val targetFrame = currentFrame + 1
 
-        // If targetFrame has drawing, shift subsequent frames forward
         val summaryNext = getCellSummary(activeLayerId.toULong(), targetFrame.toUInt())
         if (summaryNext.hasStrokes) {
             drawingManager.shiftExposureBitmaps(activeLayerId, targetFrame, 1, 1)
             engine.shiftExposure(activeLayerId.toULong(), targetFrame.toUInt(), 1)
         }
 
-        // Copy bitmap independently to targetFrame
         val sourceBmp = drawingManager.getBitmap(activeLayerId, sourceFrame)
         val copyBmp = sourceBmp.copy(Bitmap.Config.ARGB_8888, true)
         drawingManager.setBitmap(activeLayerId, targetFrame, copyBmp)
         copyBmp.recycle()
 
-        // Register stroke entry in Rust Engine for targetFrame
         engine.setActiveLayer(activeLayerId.toULong())
         engine.setCurrentFrame(targetFrame.toUInt())
         engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
         engine.endStroke()
 
-        // Advance to duplicated targetFrame
         updateCurrentFrame(targetFrame)
         hasUnsavedChanges = true
         drawNonce++
@@ -464,7 +735,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
 
-        // Push current bitmap state to Undo stack before drawing new stroke
         val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
         val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
         val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
@@ -475,7 +745,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             undoStack.addLast(snapshot)
         }
 
-        // Clear Redo stack on new drawing stroke
         redoMap[key]?.let { stack ->
             stack.forEach { it.recycle() }
             stack.clear()
@@ -508,7 +777,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
         }
         hasUnsavedChanges = true
-        drawNonce++ // Instantly triggers Canvas redraw for real-time stroke preview!
+        drawNonce++
     }
 
     fun endStroke() {
@@ -526,7 +795,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
         val undoStack = undoMap[key]
         if (undoStack != null && undoStack.isNotEmpty()) {
-            // Push current state to Redo
             val currentSnapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
             if (currentSnapshot != null) {
                 val redoStack = redoMap.getOrPut(key) { ArrayDeque() }
@@ -536,7 +804,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 redoStack.addLast(currentSnapshot)
             }
 
-            // Restore state from Undo
             val previousBmp = undoStack.removeLast()
             drawingManager.setBitmap(activeLayerId, currentFrame, previousBmp)
             previousBmp.recycle()
@@ -554,7 +821,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
         val redoStack = redoMap[key]
         if (redoStack != null && redoStack.isNotEmpty()) {
-            // Push current state to Undo
             val currentSnapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
             if (currentSnapshot != null) {
                 val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
@@ -564,7 +830,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 undoStack.addLast(currentSnapshot)
             }
 
-            // Restore state from Redo
             val redoneBmp = redoStack.removeLast()
             drawingManager.setBitmap(activeLayerId, currentFrame, redoneBmp)
             redoneBmp.recycle()
@@ -579,7 +844,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun clearCurrentFrame() {
         if (activeLayerId == 0L) return
         
-        // Save current bitmap to undo before clearing
         val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
         val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
         val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)

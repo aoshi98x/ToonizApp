@@ -166,10 +166,10 @@ private fun TopStudioBar(
                         color = Color.Transparent,
                         border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
                     ) {
-                        Text("Pro", fontSize = 10.sp, color = ActiveCyan, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                        Text("0.1", fontSize = 10.sp, color = ActiveCyan, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                     }
                 }
-                Text("Gestor de Proyectos de Animación", fontSize = 10.sp, color = TextMuted)
+                Text("Animación profesional al alcance de todos.", fontSize = 10.sp, color = TextMuted)
             }
         }
 
@@ -395,7 +395,7 @@ private fun EmptyStateView(isSearching: Boolean, onCreateNew: () -> Unit) {
             }
 
             Text(
-                text = if (isSearching) "No se encontraron proyectos" else "No hay proyectos iniciados",
+                text = if (isSearching) "No se encontraron proyectos" else "¡Inicia tu nueva historia ahora!",
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 color = Color.White
@@ -441,6 +441,6 @@ private fun BottomStatusBar(projectCount: Int) {
             Text("|  $projectCount ${if (projectCount == 1) "Proyecto Guardado" else "Proyectos Guardados"}", fontSize = 11.sp, color = TextMuted)
         }
 
-        Text("Tooniz Studio Engine · Vector Core 64b", fontSize = 10.sp, color = TextMuted)
+        Text("ToonizApp Studio · Miguel Hernandez 2026", fontSize = 10.sp, color = TextMuted)
     }
 }

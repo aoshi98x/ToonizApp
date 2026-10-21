@@ -69,6 +69,12 @@ class DrawingManager {
         }
     }
 
+    fun findBitmap(layerId: Long, frameIndex: Int): Bitmap? {
+        val key = makeKey(layerId, frameIndex)
+        val bmp = bitmaps[key] ?: return null
+        return if (!bmp.isRecycled) bmp else null
+    }
+
     fun getMaxFrame(layerId: Long): Int {
         var maxF = 1
         for (key in bitmaps.keys) {
@@ -154,7 +160,8 @@ class DrawingManager {
 
     fun clear(layerId: Long, frameIndex: Int) {
         val key = makeKey(layerId, frameIndex)
-        bitmaps[key]?.eraseColor(android.graphics.Color.TRANSPARENT)
+        val bmp = bitmaps.remove(key)
+        bmp?.recycle()
     }
 
     fun setBitmap(layerId: Long, frameIndex: Int, sourceBmp: Bitmap?) {

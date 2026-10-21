@@ -152,41 +152,49 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     size = Size(sheetWidth, sheetHeight)
                 )
 
-                // 1. Render Onion Skins (Papel Cebolla) using Bitmaps
-                if (viewModel.activeLayerId != 0L) {
-                    // Past frames (Red tint)
+                // Render ALL visible layers simultaneously in stack Z-order (index 0 is bottom, last is top)
+                for (layer in viewModel.layers) {
+                    if (viewModel.isLayerVisible(layer.id.toLong())) {
+                        val bmp = viewModel.drawingManager.findBitmap(layer.id.toLong(), viewModel.currentFrame)
+                        if (bmp != null) {
+                            drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
+                        }
+                    }
+                }
+
+                // Render Onion Skins ONLY for active layer if visible
+                if (viewModel.activeLayerId != 0L && viewModel.isLayerVisible(viewModel.activeLayerId)) {
                     val pastCount = viewModel.onionSkinPast.coerceAtMost(3)
                     for (i in 1..pastCount) {
                         val targetFrame = viewModel.currentFrame - i
                         if (targetFrame >= 1) {
-                            val pastBmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, targetFrame)
-                            val alpha = pastAlphas[i - 1]
-                            drawImage(
-                                pastBmp.asImageBitmap(),
-                                dstOffset = destOffset,
-                                colorFilter = ColorFilter.tint(Color.Red.copy(alpha = alpha))
-                            )
+                            val pastBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
+                            if (pastBmp != null) {
+                                val alpha = pastAlphas[i - 1]
+                                drawImage(
+                                    pastBmp.asImageBitmap(),
+                                    dstOffset = destOffset,
+                                    colorFilter = ColorFilter.tint(Color.Red.copy(alpha = alpha))
+                                )
+                            }
                         }
                     }
 
-                    // Future frames (Green tint)
                     val futureCount = viewModel.onionSkinFuture.coerceAtMost(3)
                     for (i in 1..futureCount) {
                         val targetFrame = viewModel.currentFrame + i
                         if (targetFrame <= 24) {
-                            val futureBmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, targetFrame)
-                            val alpha = futureAlphas[i - 1]
-                            drawImage(
-                                futureBmp.asImageBitmap(),
-                                dstOffset = destOffset,
-                                colorFilter = ColorFilter.tint(Color.Green.copy(alpha = alpha))
-                            )
+                            val futureBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
+                            if (futureBmp != null) {
+                                val alpha = futureAlphas[i - 1]
+                                drawImage(
+                                    futureBmp.asImageBitmap(),
+                                    dstOffset = destOffset,
+                                    colorFilter = ColorFilter.tint(Color.Green.copy(alpha = alpha))
+                                )
+                            }
                         }
                     }
-
-                    // 2. Render Current Frame Bitmap
-                    val bmp = viewModel.drawingManager.getBitmap(viewModel.activeLayerId, viewModel.currentFrame)
-                    drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
                 }
             }
 
