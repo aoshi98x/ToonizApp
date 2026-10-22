@@ -3,9 +3,11 @@ package com.colombianapps.toonizapp.ui.viewmodel
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
@@ -24,6 +26,29 @@ import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
 import java.io.File
 import java.util.ArrayDeque
+import kotlin.math.hypot
+
+enum class SelectionType {
+    RECTANGLE,
+    POLYGON,
+    FREEHAND
+}
+
+enum class CanvasTool {
+    SELECTION,
+    PENCIL,
+    HARD_ERASER,
+    SOFT_ERASER
+}
+
+enum class SelectionHandle {
+    NONE,
+    MOVE,
+    TOP_LEFT,
+    TOP_RIGHT,
+    BOTTOM_LEFT,
+    BOTTOM_RIGHT
+}
 
 data class FrameCellSummary(
     val hasStrokes: Boolean,
@@ -52,6 +77,27 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     var isLoading by mutableStateOf(false)
         private set
+
+    var activeTool by mutableStateOf(CanvasTool.PENCIL)
+        private set
+
+    var activeSelectionType by mutableStateOf(SelectionType.RECTANGLE)
+        private set
+
+    // Selection Transformation State
+    val selectionPoints = mutableStateListOf<Offset>()
+    var isSelectionActive by mutableStateOf(false)
+    var selectionBounds by mutableStateOf<Rect?>(null)
+    var selectionBitmap by mutableStateOf<Bitmap?>(null)
+
+    // Selection Transform values
+    var selectionScaleX by mutableStateOf(1f)
+    var selectionScaleY by mutableStateOf(1f)
+    var selectionOffsetX by mutableStateOf(0f)
+    var selectionOffsetY by mutableStateOf(0f)
+    var isSelectionFlippedHorizontally by mutableStateOf(false)
+    var isSelectionFlippedVertically by mutableStateOf(false)
+    var activeHandle by mutableStateOf(SelectionHandle.NONE)
 
     var selectedTool by mutableStateOf(ToolType.PENCIL)
         private set
@@ -157,6 +203,196 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     init {
         updateColorHsb(0f, 0f, 0f)
         startAutoSave()
+    }
+
+    fun selectCanvasTool(tool: CanvasTool) {
+        if (isSelectionActive && selectionBitmap != null && tool != CanvasTool.SELECTION) {
+            applySelectionTransform()
+        }
+        activeTool = tool
+        when (tool) {
+            CanvasTool.PENCIL -> selectTool(ToolType.PENCIL)
+            CanvasTool.HARD_ERASER -> selectTool(ToolType.HARD_ERASER)
+            CanvasTool.SOFT_ERASER -> selectTool(ToolType.SOFT_ERASER)
+            CanvasTool.SELECTION -> {}
+        }
+    }
+
+    fun selectSelectionType(type: SelectionType) {
+        if (isSelectionActive && selectionBitmap != null) {
+            applySelectionTransform()
+        }
+        activeSelectionType = type
+        selectCanvasTool(CanvasTool.SELECTION)
+        clearSelectionBounds()
+    }
+
+    fun clearSelectionBounds() {
+        selectionPoints.clear()
+        isSelectionActive = false
+        selectionBounds = null
+        selectionBitmap?.recycle()
+        selectionBitmap = null
+        selectionScaleX = 1f
+        selectionScaleY = 1f
+        selectionOffsetX = 0f
+        selectionOffsetY = 0f
+        isSelectionFlippedHorizontally = false
+        isSelectionFlippedVertically = false
+        activeHandle = SelectionHandle.NONE
+        drawNonce++
+    }
+
+    fun flipSelectionHorizontal() {
+        isSelectionFlippedHorizontally = !isSelectionFlippedHorizontally
+        drawNonce++
+    }
+
+    fun flipSelectionVertical() {
+        isSelectionFlippedVertically = !isSelectionFlippedVertically
+        drawNonce++
+    }
+
+    fun startHandleDrag(sheetX: Float, sheetY: Float) {
+        val bounds = selectionBounds ?: return
+        val transLeft = bounds.left + selectionOffsetX
+        val transTop = bounds.top + selectionOffsetY
+        val currentWidth = bounds.width * selectionScaleX
+        val currentHeight = bounds.height * selectionScaleY
+        val transRight = transLeft + currentWidth
+        val transBottom = transTop + currentHeight
+
+        val hitRadius = 35f
+
+        val isTL = hypot(sheetX - transLeft, sheetY - transTop) < hitRadius
+        val isTR = hypot(sheetX - transRight, sheetY - transTop) < hitRadius
+        val isBL = hypot(sheetX - transLeft, sheetY - transBottom) < hitRadius
+        val isBR = hypot(sheetX - transRight, sheetY - transBottom) < hitRadius
+
+        activeHandle = when {
+            isTL -> SelectionHandle.TOP_LEFT
+            isTR -> SelectionHandle.TOP_RIGHT
+            isBL -> SelectionHandle.BOTTOM_LEFT
+            isBR -> SelectionHandle.BOTTOM_RIGHT
+            sheetX in transLeft..transRight && sheetY in transTop..transBottom -> SelectionHandle.MOVE
+            else -> SelectionHandle.NONE
+        }
+    }
+
+    fun handleSelectionDrag(deltaX: Float, deltaY: Float) {
+        val bounds = selectionBounds ?: return
+        val origW = bounds.width.coerceAtLeast(1f)
+        val origH = bounds.height.coerceAtLeast(1f)
+
+        when (activeHandle) {
+            SelectionHandle.MOVE -> {
+                selectionOffsetX += deltaX
+                selectionOffsetY += deltaY
+            }
+            SelectionHandle.BOTTOM_RIGHT -> {
+                val newW = (origW * selectionScaleX + deltaX).coerceAtLeast(10f)
+                val newH = (origH * selectionScaleY + deltaY).coerceAtLeast(10f)
+                selectionScaleX = newW / origW
+                selectionScaleY = newH / origH
+            }
+            SelectionHandle.BOTTOM_LEFT -> {
+                val newW = (origW * selectionScaleX - deltaX).coerceAtLeast(10f)
+                val newH = (origH * selectionScaleY + deltaY).coerceAtLeast(10f)
+                selectionOffsetX += (origW * selectionScaleX - newW)
+                selectionScaleX = newW / origW
+                selectionScaleY = newH / origH
+            }
+            SelectionHandle.TOP_RIGHT -> {
+                val newW = (origW * selectionScaleX + deltaX).coerceAtLeast(10f)
+                val newH = (origH * selectionScaleY - deltaY).coerceAtLeast(10f)
+                selectionOffsetY += (origH * selectionScaleY - newH)
+                selectionScaleX = newW / origW
+                selectionScaleY = newH / origH
+            }
+            SelectionHandle.TOP_LEFT -> {
+                val newW = (origW * selectionScaleX - deltaX).coerceAtLeast(10f)
+                val newH = (origH * selectionScaleY - deltaY).coerceAtLeast(10f)
+                selectionOffsetX += (origW * selectionScaleX - newW)
+                selectionOffsetY += (origH * selectionScaleY - newH)
+                selectionScaleX = newW / origW
+                selectionScaleY = newH / origH
+            }
+            else -> {}
+        }
+        drawNonce++
+    }
+
+    fun applySelectionTransform() {
+        val bounds = selectionBounds ?: return
+        val bmp = selectionBitmap ?: return
+
+        if (activeLayerId == 0L) return
+
+        val targetBmp = drawingManager.getBitmap(activeLayerId, currentFrame)
+        val canvas = android.graphics.Canvas(targetBmp)
+
+        val matrix = android.graphics.Matrix().apply {
+            val scaleXVal = if (isSelectionFlippedHorizontally) -selectionScaleX else selectionScaleX
+            val scaleYVal = if (isSelectionFlippedVertically) -selectionScaleY else selectionScaleY
+            postScale(scaleXVal, scaleYVal, bmp.width / 2f, bmp.height / 2f)
+            postTranslate(bounds.left + selectionOffsetX, bounds.top + selectionOffsetY)
+        }
+
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(bmp, matrix, paint)
+
+        selectionPoints.clear()
+        isSelectionActive = false
+        selectionBounds = null
+        selectionBitmap?.recycle()
+        selectionBitmap = null
+        selectionScaleX = 1f
+        selectionScaleY = 1f
+        selectionOffsetX = 0f
+        selectionOffsetY = 0f
+        isSelectionFlippedHorizontally = false
+        isSelectionFlippedVertically = false
+        activeHandle = SelectionHandle.NONE
+        hasUnsavedChanges = true
+        drawNonce++
+        invalidateCellCache()
+    }
+
+    fun finalizeSelectionArea(bounds: Rect) {
+        if (activeLayerId == 0L || bounds.width <= 2f || bounds.height <= 2f) {
+            clearSelectionBounds()
+            return
+        }
+
+        selectionBounds = bounds
+        isSelectionActive = true
+
+        val srcBmp = drawingManager.findBitmap(activeLayerId, currentFrame)
+        if (srcBmp != null && !srcBmp.isRecycled) {
+            val left = bounds.left.toInt().coerceIn(0, srcBmp.width - 1)
+            val top = bounds.top.toInt().coerceIn(0, srcBmp.height - 1)
+            val width = bounds.width.toInt().coerceIn(1, srcBmp.width - left)
+            val height = bounds.height.toInt().coerceIn(1, srcBmp.height - top)
+
+            if (width > 0 && height > 0) {
+                val extracted = Bitmap.createBitmap(srcBmp, left, top, width, height)
+                selectionBitmap = extracted
+
+                // Cut/Clear extracted pixels from source bitmap
+                val canvas = android.graphics.Canvas(srcBmp)
+                val clearPaint = android.graphics.Paint().apply {
+                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+                }
+                canvas.drawRect(
+                    bounds.left,
+                    bounds.top,
+                    bounds.right,
+                    bounds.bottom,
+                    clearPaint
+                )
+            }
+        }
+        drawNonce++
     }
 
     private fun updateColorArgb() {
@@ -430,6 +666,9 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveProject(onFinished: (() -> Unit)? = null) {
         stopPlayback()
+        if (isSelectionActive && selectionBitmap != null) {
+            applySelectionTransform()
+        }
         val proj = currentProject ?: return
         isSaving = true
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -548,6 +787,9 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateCurrentFrame(frame: Int) {
+        if (isSelectionActive && selectionBitmap != null) {
+            applySelectionTransform()
+        }
         currentFrame = frame.coerceIn(1, totalTimelineFrames)
         engine.setCurrentFrame(currentFrame.toUInt())
         updateUndoRedoStates()
@@ -561,6 +803,9 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setActiveLayer(layerId: Long) {
+        if (isSelectionActive && selectionBitmap != null) {
+            applySelectionTransform()
+        }
         activeLayerId = layerId
         engine.setActiveLayer(layerId.toULong())
         updateUndoRedoStates()

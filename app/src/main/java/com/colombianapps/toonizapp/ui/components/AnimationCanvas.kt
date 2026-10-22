@@ -9,9 +9,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -19,9 +21,14 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.IntOffset
+import com.colombianapps.toonizapp.ui.viewmodel.CanvasTool
+import com.colombianapps.toonizapp.ui.viewmodel.SelectionType
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
 import uniffi.rust_core.ToolType
 import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 @Composable
@@ -31,6 +38,13 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
     // Pre-calculate onion skin opacity steps to avoid math in draw loop
     val pastAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
     val futureAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
+
+    val dashedStroke = remember {
+        Stroke(
+            width = 2f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -50,8 +64,14 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                         )
                     }
                 }
-                // Keyed ONLY on tool/state changes, NOT on scale/pan/rotation changes to avoid restarting pointer listener during pan/zoom!
-                .pointerInput(viewModel.selectedTool, viewModel.isPlaying, viewModel.activeLayerId) {
+                .pointerInput(
+                    viewModel.activeTool,
+                    viewModel.activeSelectionType,
+                    viewModel.isSelectionActive,
+                    viewModel.selectedTool,
+                    viewModel.isPlaying,
+                    viewModel.activeLayerId
+                ) {
                     if (viewModel.isPlaying || viewModel.activeLayerId == 0L) return@pointerInput
                     val sheetWidth = size.width * 0.85f
                     val sheetHeight = size.height * 0.8f
@@ -70,7 +90,6 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
 
                             val pointer = event.changes.firstOrNull { it.pressed }
                             if (pointer != null && event.changes.size == 1) {
-                                // Palm Rejection: 3.5s cooldown after stylus activity
                                 val timeSinceStylus = System.currentTimeMillis() - lastStylusTime
                                 val isStylusCoolingDown = timeSinceStylus < 3500L
 
@@ -82,13 +101,11 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                                 focusManager.clearFocus()
                                 val pos = pointer.position
 
-                                // Read current transform dynamically from viewModel
                                 val currentScale = viewModel.scale
                                 val currentOffsetX = viewModel.offsetX
                                 val currentOffsetY = viewModel.offsetY
                                 val currentRotation = viewModel.rotation
 
-                                // Inverse transform screen touch position to world canvas coordinates
                                 val unPanX = pos.x - currentOffsetX - center.x
                                 val unPanY = pos.y - currentOffsetY - center.y
 
@@ -105,16 +122,75 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                                 val sheetX = localX - sheetLeft
                                 val sheetY = localY - sheetTop
 
-                                // Only draw if touch point is inside the white canvas sheet bounds!
                                 val isInsideSheet = sheetX in 0f..sheetWidth && sheetY in 0f..sheetHeight
 
                                 if (isInsideSheet) {
                                     viewModel.setPointerState(true, pos)
 
-                                    if (pointer.pressed && !pointer.previousPressed) {
-                                        viewModel.startStroke(sheetX, sheetY, pointer.pressure)
-                                    } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
-                                        viewModel.addPoint(sheetX, sheetY, pointer.pressure)
+                                    if (viewModel.activeTool == CanvasTool.SELECTION) {
+                                        if (viewModel.isSelectionActive) {
+                                            // Handle drag & transform selection box
+                                            if (pointer.pressed && !pointer.previousPressed) {
+                                                viewModel.startHandleDrag(sheetX, sheetY)
+                                            } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
+                                                val deltaX = (pointer.position.x - pointer.previousPosition.x) / currentScale
+                                                val deltaY = (pointer.position.y - pointer.previousPosition.y) / currentScale
+                                                viewModel.handleSelectionDrag(deltaX, deltaY)
+                                            }
+                                        } else {
+                                            // Drawing new selection boundary
+                                            when (viewModel.activeSelectionType) {
+                                                SelectionType.RECTANGLE -> {
+                                                    if (pointer.pressed && !pointer.previousPressed) {
+                                                        viewModel.selectionPoints.clear()
+                                                        viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                    } else if (pointer.pressed) {
+                                                        if (viewModel.selectionPoints.size < 2) {
+                                                            viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                        } else {
+                                                            viewModel.selectionPoints[1] = Offset(sheetX, sheetY)
+                                                        }
+                                                    }
+                                                }
+                                                SelectionType.POLYGON -> {
+                                                    if (pointer.pressed && !pointer.previousPressed) {
+                                                        val pt = Offset(sheetX, sheetY)
+                                                        if (viewModel.selectionPoints.size >= 3) {
+                                                            val first = viewModel.selectionPoints.first()
+                                                            if (hypot(pt.x - first.x, pt.y - first.y) < 30f) {
+                                                                // Close polygon
+                                                                var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+                                                                var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
+                                                                for (p in viewModel.selectionPoints) {
+                                                                    minX = min(minX, p.x); minY = min(minY, p.y)
+                                                                    maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+                                                                }
+                                                                viewModel.finalizeSelectionArea(Rect(minX, minY, maxX, maxY))
+                                                            } else {
+                                                                viewModel.selectionPoints.add(pt)
+                                                            }
+                                                        } else {
+                                                            viewModel.selectionPoints.add(pt)
+                                                        }
+                                                    }
+                                                }
+                                                SelectionType.FREEHAND -> {
+                                                    if (pointer.pressed && !pointer.previousPressed) {
+                                                        viewModel.selectionPoints.clear()
+                                                        viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                    } else if (pointer.pressed) {
+                                                        viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // PENCIL / ERASER Drawing
+                                        if (pointer.pressed && !pointer.previousPressed) {
+                                            viewModel.startStroke(sheetX, sheetY, pointer.pressure)
+                                        } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
+                                            viewModel.addPoint(sheetX, sheetY, pointer.pressure)
+                                        }
                                     }
                                 } else {
                                     viewModel.setPointerState(false, null)
@@ -123,7 +199,24 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                             } else {
                                 viewModel.setPointerState(false, null)
                                 if (event.changes.any { !it.pressed && it.previousPressed }) {
-                                    viewModel.endStroke()
+                                    if (viewModel.activeTool == CanvasTool.SELECTION && !viewModel.isSelectionActive) {
+                                        if (viewModel.activeSelectionType == SelectionType.RECTANGLE && viewModel.selectionPoints.size == 2) {
+                                            val p1 = viewModel.selectionPoints[0]
+                                            val p2 = viewModel.selectionPoints[1]
+                                            val bounds = Rect(min(p1.x, p2.x), min(p1.y, p2.y), max(p1.x, p2.x), max(p1.y, p2.y))
+                                            viewModel.finalizeSelectionArea(bounds)
+                                        } else if (viewModel.activeSelectionType == SelectionType.FREEHAND && viewModel.selectionPoints.size > 2) {
+                                            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+                                            var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
+                                            for (p in viewModel.selectionPoints) {
+                                                minX = min(minX, p.x); minY = min(minY, p.y)
+                                                maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+                                            }
+                                            viewModel.finalizeSelectionArea(Rect(minX, minY, maxX, maxY))
+                                        }
+                                    } else if (viewModel.activeTool != CanvasTool.SELECTION) {
+                                        viewModel.endStroke()
+                                    }
                                 }
                             }
                         }
@@ -159,6 +252,79 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                         if (bmp != null) {
                             drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
                         }
+                    }
+                }
+
+                // Render Selection Extracted Bitmap & Transformation Handles
+                if (viewModel.activeTool == CanvasTool.SELECTION) {
+                    if (!viewModel.isSelectionActive && viewModel.selectionPoints.size >= 2) {
+                        if (viewModel.activeSelectionType == SelectionType.RECTANGLE) {
+                            val p1 = viewModel.selectionPoints[0]
+                            val p2 = viewModel.selectionPoints[1]
+                            val bounds = Rect(
+                                min(p1.x, p2.x) + sheetLeft,
+                                min(p1.y, p2.y) + sheetTop,
+                                max(p1.x, p2.x) + sheetLeft,
+                                max(p1.y, p2.y) + sheetTop
+                            )
+                            drawRect(
+                                color = Color(0xFF00CCCB),
+                                topLeft = Offset(bounds.left, bounds.top),
+                                size = Size(bounds.width, bounds.height),
+                                style = dashedStroke
+                            )
+                        } else {
+                            for (i in 0 until viewModel.selectionPoints.size - 1) {
+                                val start = viewModel.selectionPoints[i] + Offset(sheetLeft, sheetTop)
+                                val end = viewModel.selectionPoints[i + 1] + Offset(sheetLeft, sheetTop)
+                                drawLine(Color(0xFF00CCCB), start, end, strokeWidth = 2f)
+                            }
+                        }
+                    }
+
+                    if (viewModel.isSelectionActive && viewModel.selectionBounds != null && viewModel.selectionBitmap != null) {
+                        val bounds = viewModel.selectionBounds!!
+                        val selBmp = viewModel.selectionBitmap!!
+
+                        val transLeft = bounds.left + viewModel.selectionOffsetX + sheetLeft
+                        val transTop = bounds.top + viewModel.selectionOffsetY + sheetTop
+                        val scaledWidth = bounds.width * viewModel.selectionScaleX
+                        val scaledHeight = bounds.height * viewModel.selectionScaleY
+
+                        val flipX = if (viewModel.isSelectionFlippedHorizontally) -1f else 1f
+                        val flipY = if (viewModel.isSelectionFlippedVertically) -1f else 1f
+
+                        withTransform({
+                            translate(transLeft + scaledWidth / 2f, transTop + scaledHeight / 2f)
+                            scale(viewModel.selectionScaleX * flipX, viewModel.selectionScaleY * flipY, pivot = Offset.Zero)
+                        }) {
+                            drawImage(
+                                selBmp.asImageBitmap(),
+                                dstOffset = IntOffset(-selBmp.width / 2, -selBmp.height / 2)
+                            )
+                        }
+
+                        // Draw dashed bounding box & 4 transform handles
+                        val boxRect = Rect(transLeft, transTop, transLeft + scaledWidth, transTop + scaledHeight)
+                        drawRect(
+                            color = Color(0xFF00CCCB),
+                            topLeft = Offset(boxRect.left, boxRect.top),
+                            size = Size(boxRect.width, boxRect.height),
+                            style = dashedStroke
+                        )
+
+                        // 4 Corner Handles
+                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.left, boxRect.top))
+                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.left, boxRect.top))
+
+                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.right, boxRect.top))
+                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.right, boxRect.top))
+
+                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.left, boxRect.bottom))
+                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.left, boxRect.bottom))
+
+                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.right, boxRect.bottom))
+                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.right, boxRect.bottom))
                     }
                 }
 
@@ -198,37 +364,36 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                 }
             }
 
-            // 3. Render Circular Tool Radius Cursor Guide Ring
-            val targetPos = viewModel.currentScreenPosition
-            if (targetPos != null) {
-                val baseSize = if (viewModel.selectedTool == ToolType.PENCIL) viewModel.strokeWidth else viewModel.strokeWidth * 2.5f
-                val radiusPx = (baseSize * viewModel.scale) / 2f
+            // Render Circular Tool Radius Cursor Guide Ring
+            if (viewModel.activeTool != CanvasTool.SELECTION) {
+                val targetPos = viewModel.currentScreenPosition
+                if (targetPos != null) {
+                    val baseSize = if (viewModel.selectedTool == ToolType.PENCIL) viewModel.strokeWidth else viewModel.strokeWidth * 2.5f
+                    val radiusPx = (baseSize * viewModel.scale) / 2f
 
-                if (radiusPx > 0.5f) {
-                    // Contrast Outer Shadow Ring
-                    drawCircle(
-                        color = Color.Black.copy(alpha = 0.6f),
-                        radius = radiusPx + 1f,
-                        center = targetPos,
-                        style = Stroke(width = 2.5f)
-                    )
-                    // High-visibility Inner Ring
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.9f),
-                        radius = radiusPx,
-                        center = targetPos,
-                        style = Stroke(width = 1.5f)
-                    )
-
-                    // Soft Eraser Core Radius Ring
-                    if (viewModel.selectedTool == ToolType.SOFT_ERASER) {
-                        val coreRadius = radiusPx * viewModel.strokeHardness.coerceIn(0.05f, 0.95f)
+                    if (radiusPx > 0.5f) {
                         drawCircle(
-                            color = Color(0xFF00CCCB).copy(alpha = 0.8f),
-                            radius = coreRadius,
+                            color = Color.Black.copy(alpha = 0.6f),
+                            radius = radiusPx + 1f,
                             center = targetPos,
-                            style = Stroke(width = 1f)
+                            style = Stroke(width = 2.5f)
                         )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.9f),
+                            radius = radiusPx,
+                            center = targetPos,
+                            style = Stroke(width = 1.5f)
+                        )
+
+                        if (viewModel.selectedTool == ToolType.SOFT_ERASER) {
+                            val coreRadius = radiusPx * viewModel.strokeHardness.coerceIn(0.05f, 0.95f)
+                            drawCircle(
+                                color = Color(0xFF00CCCB).copy(alpha = 0.8f),
+                                radius = coreRadius,
+                                center = targetPos,
+                                style = Stroke(width = 1f)
+                            )
+                        }
                     }
                 }
             }

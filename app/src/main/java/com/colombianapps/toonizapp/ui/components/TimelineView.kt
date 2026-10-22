@@ -314,6 +314,9 @@ fun TimelineView(viewModel: StudioViewModel) {
                             Text("Duplicar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
 
+                        // Onion Skin (Papel Cebolla) Menu
+                        OnionSkinMenu(viewModel = viewModel)
+
                         // Add Level button
                         Button(
                             onClick = { viewModel.addLayer() },

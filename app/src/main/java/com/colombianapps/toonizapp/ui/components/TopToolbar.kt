@@ -21,8 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
+import com.colombianapps.toonizapp.ui.viewmodel.CanvasTool
+import com.colombianapps.toonizapp.ui.viewmodel.SelectionType
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
-import uniffi.rust_core.ToolType
 
 private val BgDark = Color(0xFF071215)
 private val PanelBg = Color(0xFF0D1E22)
@@ -37,6 +39,8 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClic
         ColorWheelPickerDialog(viewModel = viewModel)
     }
 
+    var showMenu by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
         shape = RoundedCornerShape(4.dp),
@@ -44,175 +48,227 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClic
         border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Back Button to Project Manager
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver a Proyectos", modifier = Modifier.size(18.dp))
-            }
-
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
-
-            // Selected Tool Name Badge
-            Surface(
-                shape = RoundedCornerShape(3.dp),
-                color = ActiveCyan,
-                modifier = Modifier.height(32.dp)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
+            // Hamburger Options Menu Button
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp),
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
                 ) {
-                    val toolName = when (viewModel.selectedTool) {
-                        ToolType.PENCIL -> "✏️ Lápiz"
-                        ToolType.HARD_ERASER -> "🧽 B. Duro"
-                        ToolType.SOFT_ERASER -> "🖌️ B. Suave"
-                    }
-                    Text(toolName, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = BgDark)
+                    Icon(Icons.Default.Menu, contentDescription = "Menú de Opciones", modifier = Modifier.size(20.dp))
                 }
-            }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
-
-            // Thickness Controls
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text("Grosor:", fontSize = 11.sp, color = TextMuted)
-                Slider(
-                    value = viewModel.strokeWidth.coerceIn(1f, 100f),
-                    onValueChange = { viewModel.updateStrokeWidth(it) },
-                    valueRange = 1f..100f,
-                    modifier = Modifier.width(80.dp),
-                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
-                )
-                Box(
-                    modifier = Modifier
-                        .width(68.dp)
-                        .height(34.dp)
-                        .background(CardBg, RoundedCornerShape(3.dp))
-                        .border(1.dp, BorderCyan, RoundedCornerShape(3.dp)),
-                    contentAlignment = Alignment.Center
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier.background(PanelBg).border(1.dp, BorderCyan)
                 ) {
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = viewModel.strokeWidth.toInt().toString(),
-                        onValueChange = {
-                            val parsed = it.toFloatOrNull() ?: 1f
-                            viewModel.updateStrokeWidth(parsed)
-                        },
-                        textStyle = LocalTextStyle.current.copy(
-                            fontSize = 11.sp,
-                            color = Color.White,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                    DropdownMenuItem(
+                        text = { Text("💾 Guardar Proyecto", fontSize = 12.sp, color = Color.White) },
+                        onClick = {
+                            viewModel.saveProject()
+                            showMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("🎬 Renderizar / Exportar", fontSize = 12.sp, color = Color.White) },
+                        onClick = {
+                            onExportClick()
+                            showMenu = false
+                        }
+                    )
+                    HorizontalDivider(color = BorderCyan)
+                    DropdownMenuItem(
+                        text = { Text("⬅️ Volver a Proyectos", fontSize = 12.sp, color = Color.White) },
+                        onClick = {
+                            onBackClick()
+                            showMenu = false
+                        }
                     )
                 }
             }
 
-            // Color Picker Button
-            if (viewModel.selectedTool == ToolType.PENCIL) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(viewModel.currentColor)
-                        .border(1.5.dp, Color.White, RoundedCornerShape(3.dp))
-                        .clickable { viewModel.isColorPickerOpen = true }
-                )
-            }
-
             HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
 
-            // Hardness Slider
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
-                Slider(
-                    value = viewModel.strokeHardness,
-                    onValueChange = { viewModel.updateStrokeHardness(it) },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.width(70.dp),
-                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
-                )
+            // DYNAMIC TOOL CONTROLS PANEL
+            when (viewModel.activeTool) {
+                CanvasTool.PENCIL -> {
+                    // Badge
+                    Surface(shape = RoundedCornerShape(3.dp), color = ActiveCyan, modifier = Modifier.height(30.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                            Text("✏️ Lápiz", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
+                        }
+                    }
+
+                    // Thickness
+                    Text("Grosor:", fontSize = 11.sp, color = TextMuted)
+                    Slider(
+                        value = viewModel.strokeWidth.coerceIn(1f, 100f),
+                        onValueChange = { viewModel.updateStrokeWidth(it) },
+                        valueRange = 1f..100f,
+                        modifier = Modifier.width(70.dp),
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(52.dp)
+                            .height(32.dp)
+                            .background(CardBg, RoundedCornerShape(3.dp))
+                            .border(1.dp, BorderCyan, RoundedCornerShape(3.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = viewModel.strokeWidth.toInt().toString(),
+                            onValueChange = { viewModel.updateStrokeWidth(it.toFloatOrNull() ?: 1f) },
+                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                        )
+                    }
+
+                    // Color Picker Button
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(viewModel.currentColor)
+                            .border(1.5.dp, Color.White, RoundedCornerShape(3.dp))
+                            .clickable { viewModel.isColorPickerOpen = true }
+                    )
+
+                    // Hardness Slider
+                    Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
+                    Slider(
+                        value = viewModel.strokeHardness,
+                        onValueChange = { viewModel.updateStrokeHardness(it) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.width(60.dp),
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
+                    )
+                }
+                CanvasTool.HARD_ERASER, CanvasTool.SOFT_ERASER -> {
+                    // Badge
+                    Surface(shape = RoundedCornerShape(3.dp), color = ActiveCyan, modifier = Modifier.height(30.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                            val badge = if (viewModel.activeTool == CanvasTool.HARD_ERASER) "🧽 B. Duro" else "🖌️ B. Suave"
+                            Text(badge, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
+                        }
+                    }
+
+                    // Thickness
+                    Text("Grosor:", fontSize = 11.sp, color = TextMuted)
+                    Slider(
+                        value = viewModel.strokeWidth.coerceIn(1f, 100f),
+                        onValueChange = { viewModel.updateStrokeWidth(it) },
+                        valueRange = 1f..100f,
+                        modifier = Modifier.width(80.dp),
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(52.dp)
+                            .height(32.dp)
+                            .background(CardBg, RoundedCornerShape(3.dp))
+                            .border(1.dp, BorderCyan, RoundedCornerShape(3.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = viewModel.strokeWidth.toInt().toString(),
+                            onValueChange = { viewModel.updateStrokeWidth(it.toFloatOrNull() ?: 1f) },
+                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                        )
+                    }
+
+                    // Hardness Slider
+                    Text("Dureza: ${(viewModel.strokeHardness * 100).toInt()}%", fontSize = 11.sp, color = TextMuted)
+                    Slider(
+                        value = viewModel.strokeHardness,
+                        onValueChange = { viewModel.updateStrokeHardness(it) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.width(70.dp),
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
+                    )
+                }
+                CanvasTool.SELECTION -> {
+                    // Selection Badge
+                    Surface(shape = RoundedCornerShape(3.dp), color = ActiveCyan, modifier = Modifier.height(30.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                            val selLabel = when (viewModel.activeSelectionType) {
+                                SelectionType.RECTANGLE -> "🔲 Selección Rectangular"
+                                SelectionType.POLYGON -> "📐 Selección Poligonal"
+                                SelectionType.FREEHAND -> "〰️ Selección Libre"
+                            }
+                            Text(selLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BgDark)
+                        }
+                    }
+
+                    if (viewModel.isSelectionActive) {
+                        // Mirror H
+                        IconButton(onClick = { viewModel.flipSelectionHorizontal() }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Default.Flip, contentDescription = "Espejo Horizontal", tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
+                        // Mirror V
+                        IconButton(onClick = { viewModel.flipSelectionVertical() }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Default.Flip,
+                                contentDescription = "Espejo Vertical",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer(rotationZ = 90f)
+                            )
+                        }
+                        // Clear Selection
+                        Button(
+                            onClick = { viewModel.clearSelectionBounds() },
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE57373), contentColor = Color.White)
+                        ) {
+                            Text("Cancelar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        // Apply Selection
+                        Button(
+                            onClick = { viewModel.applySelectionTransform() },
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ActiveCyan, contentColor = BgDark)
+                        ) {
+                            Text("Aplicar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Text("Dibuja sobre el lienzo para seleccionar y transformar", fontSize = 11.sp, color = TextMuted)
+                    }
+                }
             }
 
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
+            Spacer(modifier = Modifier.weight(1f))
 
-            // Onion Skin Menu
-            OnionSkinMenu(viewModel = viewModel)
-
-            HorizontalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = BorderCyan)
-
-            // Save Button
-            Button(
-                onClick = { viewModel.saveProject() },
-                enabled = viewModel.hasUnsavedChanges,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(3.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ActiveCyan,
-                    contentColor = BgDark,
-                    disabledContainerColor = CardBg,
-                    disabledContentColor = TextMuted
-                )
-            ) {
-                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(3.dp))
-                Text("Guardar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-
-            // Render / Export Button
-            Button(
-                onClick = onExportClick,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(3.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF165257),
-                    contentColor = Color.White
-                ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
-            ) {
-                Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(3.dp))
-                Text("Render", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-
-            // Undo, Redo & Clear
+            // Undo, Redo & Clear Buttons
             IconButton(
                 onClick = { viewModel.undo() },
                 enabled = viewModel.canUndo,
                 modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = Color.White,
-                    disabledContentColor = TextMuted.copy(alpha = 0.4f)
-                )
+                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = TextMuted.copy(alpha = 0.4f))
             ) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Deshacer (Paso atrás)", modifier = Modifier.size(18.dp))
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Deshacer", modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = { viewModel.redo() },
                 enabled = viewModel.canRedo,
                 modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = Color.White,
-                    disabledContentColor = TextMuted.copy(alpha = 0.4f)
-                )
+                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = TextMuted.copy(alpha = 0.4f))
             ) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Rehacer (Paso adelante)", modifier = Modifier.size(18.dp))
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Rehacer", modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = { viewModel.clearCurrentFrame() },
