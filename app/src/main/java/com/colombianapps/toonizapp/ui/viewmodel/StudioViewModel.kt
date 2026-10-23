@@ -205,6 +205,48 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         startAutoSave()
     }
 
+    fun getPastDrawingFrames(layerId: ULong, currentFrame: Int, count: Int): List<Int> {
+        if (count <= 0 || currentFrame <= 1) return emptyList()
+        val result = mutableListOf<Int>()
+        var f = currentFrame - 1
+
+        while (f >= 1 && result.size < count) {
+            val summary = getCellSummary(layerId, f.toUInt())
+            if (summary.hasStrokes) {
+                val strokes = engine.getStrokesForLayerAndFrame(layerId, f.toUInt())
+                val startFrame = if (strokes.isNotEmpty()) strokes.first().frameIndex.toInt() else f
+                if (!result.contains(startFrame) && startFrame < currentFrame) {
+                    result.add(startFrame)
+                }
+                f = startFrame - 1
+            } else {
+                f--
+            }
+        }
+        return result
+    }
+
+    fun getFutureDrawingFrames(layerId: ULong, currentFrame: Int, count: Int): List<Int> {
+        if (count <= 0) return emptyList()
+        val result = mutableListOf<Int>()
+        var f = currentFrame + 1
+
+        while (f <= totalTimelineFrames && result.size < count) {
+            val summary = getCellSummary(layerId, f.toUInt())
+            if (summary.hasStrokes) {
+                val strokes = engine.getStrokesForLayerAndFrame(layerId, f.toUInt())
+                val startFrame = if (strokes.isNotEmpty()) strokes.first().frameIndex.toInt() else f
+                if (!result.contains(startFrame) && startFrame > currentFrame) {
+                    result.add(startFrame)
+                }
+                f = startFrame + summary.exposure
+            } else {
+                f++
+            }
+        }
+        return result
+    }
+
     fun selectCanvasTool(tool: CanvasTool) {
         if (isSelectionActive && selectionBitmap != null && tool != CanvasTool.SELECTION) {
             applySelectionTransform()
@@ -819,6 +861,40 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         setActiveLayer(newId.toLong())
         hasUnsavedChanges = true
         invalidateCellCache()
+    }
+
+    fun importImageToNewLayer(context: android.content.Context, uri: android.net.Uri) {
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return
+            val originalBmp = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+            if (originalBmp == null) return
+
+            val layerName = "Imagen ${layers.size + 1}"
+            val newLayerId = engine.addLayer(layerName)
+            layers = engine.getLayers()
+            setActiveLayer(newLayerId.toLong())
+
+            val canvasWidth = currentProject?.canvasWidth ?: 1920
+            val canvasHeight = currentProject?.canvasHeight ?: 1080
+
+            val scaledBmp = Bitmap.createScaledBitmap(originalBmp, canvasWidth, canvasHeight, true)
+            originalBmp.recycle()
+
+            drawingManager.setBitmap(newLayerId.toLong(), currentFrame, scaledBmp)
+            scaledBmp.recycle()
+
+            engine.setActiveLayer(newLayerId)
+            engine.setCurrentFrame(currentFrame.toUInt())
+            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+            engine.endStroke()
+
+            hasUnsavedChanges = true
+            drawNonce++
+            invalidateCellCache()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private val layerVisibilityMap = mutableMapOf<Long, Boolean>()

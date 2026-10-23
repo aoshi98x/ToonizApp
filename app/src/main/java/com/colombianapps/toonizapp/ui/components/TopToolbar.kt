@@ -34,7 +34,12 @@ private val ActiveCyan = Color(0xFF00CCCB)
 private val TextMuted = Color(0xFF8FA8B0)
 
 @Composable
-fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClick: () -> Unit) {
+fun TopToolbar(
+    viewModel: StudioViewModel,
+    onBackClick: () -> Unit,
+    onExportClick: () -> Unit,
+    onImportImageClick: () -> Unit
+) {
     if (viewModel.isColorPickerOpen) {
         ColorWheelPickerDialog(viewModel = viewModel)
     }
@@ -67,6 +72,13 @@ fun TopToolbar(viewModel: StudioViewModel, onBackClick: () -> Unit, onExportClic
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier.background(PanelBg).border(1.dp, BorderCyan)
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("🖼️ Importar Imagen", fontSize = 12.sp, color = Color.White) },
+                        onClick = {
+                            onImportImageClick()
+                            showMenu = false
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("💾 Guardar Proyecto", fontSize = 12.sp, color = Color.White) },
                         onClick = {

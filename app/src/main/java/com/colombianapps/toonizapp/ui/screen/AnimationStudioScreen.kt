@@ -1,5 +1,7 @@
 package com.colombianapps.toonizapp.ui.screen
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +37,15 @@ fun AnimationStudioScreen(
     onBackClick: () -> Unit,
     onExportClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importImageToNewLayer(context, uri)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Canvas
         AnimationCanvas(viewModel = viewModel)
@@ -89,7 +101,12 @@ fun AnimationStudioScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                TopToolbar(viewModel = viewModel, onBackClick = onBackClick, onExportClick = onExportClick)
+                TopToolbar(
+                    viewModel = viewModel,
+                    onBackClick = onBackClick,
+                    onExportClick = onExportClick,
+                    onImportImageClick = { imagePickerLauncher.launch("image/*") }
+                )
             }
 
             // Reset Transform Button

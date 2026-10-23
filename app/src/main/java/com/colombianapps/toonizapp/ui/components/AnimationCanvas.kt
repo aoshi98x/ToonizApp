@@ -35,9 +35,9 @@ import kotlin.math.sin
 fun AnimationCanvas(viewModel: StudioViewModel) {
     val focusManager = LocalFocusManager.current
 
-    // Pre-calculate onion skin opacity steps to avoid math in draw loop
-    val pastAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
-    val futureAlphas = remember { floatArrayOf(0.35f, 0.35f / 3f, 0.35f / 9f) }
+    // Pre-calculate onion skin opacity steps: 50% for 1st adjacent drawing, 35% for 2nd, 20% for 3rd
+    val pastAlphas = remember { floatArrayOf(0.50f, 0.35f, 0.20f) }
+    val futureAlphas = remember { floatArrayOf(0.50f, 0.35f, 0.20f) }
 
     val dashedStroke = remember {
         Stroke(
@@ -330,35 +330,31 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
 
                 // Render Onion Skins ONLY for active layer if visible
                 if (viewModel.activeLayerId != 0L && viewModel.isLayerVisible(viewModel.activeLayerId)) {
-                    val pastCount = viewModel.onionSkinPast.coerceAtMost(3)
-                    for (i in 1..pastCount) {
-                        val targetFrame = viewModel.currentFrame - i
-                        if (targetFrame >= 1) {
-                            val pastBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
-                            if (pastBmp != null) {
-                                val alpha = pastAlphas[i - 1]
-                                drawImage(
-                                    pastBmp.asImageBitmap(),
-                                    dstOffset = destOffset,
-                                    colorFilter = ColorFilter.tint(Color.Red.copy(alpha = alpha))
-                                )
-                            }
+                    // Past Drawings (Red tint)
+                    val pastFrames = viewModel.getPastDrawingFrames(viewModel.activeLayerId.toULong(), viewModel.currentFrame, viewModel.onionSkinPast)
+                    pastFrames.forEachIndexed { index, targetFrame ->
+                        val pastBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
+                        if (pastBmp != null) {
+                            val alpha = pastAlphas.getOrElse(index) { 0.20f }
+                            drawImage(
+                                pastBmp.asImageBitmap(),
+                                dstOffset = destOffset,
+                                colorFilter = ColorFilter.tint(Color.Red.copy(alpha = alpha))
+                            )
                         }
                     }
 
-                    val futureCount = viewModel.onionSkinFuture.coerceAtMost(3)
-                    for (i in 1..futureCount) {
-                        val targetFrame = viewModel.currentFrame + i
-                        if (targetFrame <= 24) {
-                            val futureBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
-                            if (futureBmp != null) {
-                                val alpha = futureAlphas[i - 1]
-                                drawImage(
-                                    futureBmp.asImageBitmap(),
-                                    dstOffset = destOffset,
-                                    colorFilter = ColorFilter.tint(Color.Green.copy(alpha = alpha))
-                                )
-                            }
+                    // Future Drawings (Green tint)
+                    val futureFrames = viewModel.getFutureDrawingFrames(viewModel.activeLayerId.toULong(), viewModel.currentFrame, viewModel.onionSkinFuture)
+                    futureFrames.forEachIndexed { index, targetFrame ->
+                        val futureBmp = viewModel.drawingManager.findBitmap(viewModel.activeLayerId, targetFrame)
+                        if (futureBmp != null) {
+                            val alpha = futureAlphas.getOrElse(index) { 0.20f }
+                            drawImage(
+                                futureBmp.asImageBitmap(),
+                                dstOffset = destOffset,
+                                colorFilter = ColorFilter.tint(Color.Green.copy(alpha = alpha))
+                            )
                         }
                     }
                 }
