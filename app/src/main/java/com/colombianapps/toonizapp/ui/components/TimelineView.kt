@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.ui.viewmodel.StudioViewModel
+import kotlin.math.roundToInt
 
 private val BgDark = Color(0xFF071215)
 private val PanelBg = Color(0xFF0D1E22)
@@ -47,6 +48,9 @@ fun TimelineView(viewModel: StudioViewModel) {
     var showRenameDialog by remember { mutableStateOf(false) }
     var renamingLayerId by remember { mutableLongStateOf(0L) }
     var newLayerName by remember { mutableStateOf("") }
+
+    // Opacity Input Dialog State
+    var showOpacityDialog by remember { mutableStateOf(false) }
 
     val activeCellSummary = viewModel.getCellSummary(viewModel.activeLayerId.toULong(), viewModel.currentFrame.toUInt())
     val activeFrameHasStrokes = activeCellSummary.hasStrokes
@@ -117,6 +121,53 @@ fun TimelineView(viewModel: StudioViewModel) {
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
                     Text("Cancelar", color = Color.White)
+                }
+            }
+        )
+    }
+
+    if (showOpacityDialog && viewModel.activeLayerId != 0L) {
+        var inputVal by remember { mutableStateOf(((viewModel.getLayerOpacity(viewModel.activeLayerId) * 100f).roundToInt()).toString()) }
+        AlertDialog(
+            onDismissRequest = { showOpacityDialog = false },
+            containerColor = PanelBg,
+            shape = RoundedCornerShape(6.dp),
+            title = { Text("Ajustar Opacidad del Nivel (0 - 100%)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+            text = {
+                OutlinedTextField(
+                    value = inputVal,
+                    onValueChange = { newValue ->
+                        val digitsOnly = newValue.filter { char -> char.isDigit() }.take(3)
+                        inputVal = digitsOnly
+                        val parsed = digitsOnly.toIntOrNull()?.coerceIn(0, 100)
+                        if (parsed != null) {
+                            viewModel.setLayerOpacity(viewModel.activeLayerId, parsed / 100f)
+                        }
+                    },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    label = { Text("Porcentaje de Opacidad (0 - 100)", fontSize = 11.sp, color = TextMuted) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(3.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = CardBg,
+                        unfocusedContainerColor = CardBg,
+                        focusedBorderColor = ActiveCyan,
+                        unfocusedBorderColor = BorderCyan,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showOpacityDialog = false },
+                    shape = RoundedCornerShape(2.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActiveCyan, contentColor = BgDark)
+                ) {
+                    Text("Listo", fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -312,6 +363,42 @@ fun TimelineView(viewModel: StudioViewModel) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(3.dp))
                             Text("Duplicar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Layer Opacity Control (Only shown when a layer is selected)
+                        if (viewModel.activeLayerId != 0L) {
+                            val opacityPct = (viewModel.getLayerOpacity(viewModel.activeLayerId) * 100f).roundToInt().coerceIn(0, 100)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("Opacidad:", fontSize = 10.sp, color = TextMuted)
+                                Slider(
+                                    value = opacityPct.toFloat(),
+                                    onValueChange = { newPct ->
+                                        viewModel.setLayerOpacity(viewModel.activeLayerId, newPct / 100f)
+                                    },
+                                    valueRange = 0f..100f,
+                                    modifier = Modifier.width(65.dp),
+                                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = ActiveCyan)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(38.dp)
+                                        .height(24.dp)
+                                        .background(CardBg, RoundedCornerShape(2.dp))
+                                        .border(1.dp, BorderCyan, RoundedCornerShape(2.dp))
+                                        .clickable { showOpacityDialog = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$opacityPct%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
                         }
 
                         // Onion Skin (Papel Cebolla) Menu

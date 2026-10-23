@@ -166,7 +166,7 @@ private fun TopStudioBar(
                         color = Color.Transparent,
                         border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
                     ) {
-                        Text("0.1", fontSize = 10.sp, color = ActiveCyan, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                        Text("0.0.1a", fontSize = 10.sp, color = ActiveCyan, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                     }
                 }
                 Text("Animación profesional al alcance de todos.", fontSize = 10.sp, color = TextMuted)

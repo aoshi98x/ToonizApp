@@ -55,13 +55,20 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, rot ->
-                        viewModel.updateTransform(
-                            viewModel.scale * zoom,
-                            viewModel.offsetX + pan.x,
-                            viewModel.offsetY + pan.y,
-                            viewModel.rotation + rot
-                        )
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        if (viewModel.activeTool == CanvasTool.SELECTION && viewModel.isSelectionActive) {
+                            viewModel.selectionScaleX = (viewModel.selectionScaleX * zoom).coerceIn(0.1f, 10f)
+                            viewModel.selectionScaleY = (viewModel.selectionScaleY * zoom).coerceIn(0.1f, 10f)
+                            viewModel.selectionOffsetX += pan.x / viewModel.scale
+                            viewModel.selectionOffsetY += pan.y / viewModel.scale
+                        } else {
+                            viewModel.updateTransform(
+                                viewModel.scale * zoom,
+                                viewModel.offsetX + pan.x,
+                                viewModel.offsetY + pan.y,
+                                viewModel.rotation
+                            )
+                        }
                     }
                 }
                 .pointerInput(
@@ -250,7 +257,12 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     if (viewModel.isLayerVisible(layer.id.toLong())) {
                         val bmp = viewModel.drawingManager.findBitmap(layer.id.toLong(), viewModel.currentFrame)
                         if (bmp != null) {
-                            drawImage(bmp.asImageBitmap(), dstOffset = destOffset)
+                            val opacity = viewModel.getLayerOpacity(layer.id.toLong())
+                            drawImage(
+                                bmp.asImageBitmap(),
+                                dstOffset = destOffset,
+                                alpha = opacity
+                            )
                         }
                     }
                 }
@@ -313,18 +325,18 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                             style = dashedStroke
                         )
 
-                        // 4 Corner Handles
-                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.left, boxRect.top))
-                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.left, boxRect.top))
+                        // 4 Corner Handles (50% larger)
+                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.left, boxRect.top))
+                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.left, boxRect.top))
 
-                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.right, boxRect.top))
-                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.right, boxRect.top))
+                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.right, boxRect.top))
+                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.right, boxRect.top))
 
-                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.left, boxRect.bottom))
-                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.left, boxRect.bottom))
+                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.left, boxRect.bottom))
+                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.left, boxRect.bottom))
 
-                        drawCircle(Color.White, radius = 7f, center = Offset(boxRect.right, boxRect.bottom))
-                        drawCircle(Color(0xFF00CCCB), radius = 5f, center = Offset(boxRect.right, boxRect.bottom))
+                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.right, boxRect.bottom))
+                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.right, boxRect.bottom))
                     }
                 }
 

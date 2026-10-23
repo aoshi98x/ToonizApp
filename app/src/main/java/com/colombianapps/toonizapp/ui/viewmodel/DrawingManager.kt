@@ -261,7 +261,7 @@ class DrawingManager {
         }
     }
 
-    fun loadBitmaps(context: Context, projectId: String): Set<Pair<Long, Int>> {
+    fun loadBitmapsWithLayerMapping(context: Context, projectId: String, layerIdMap: Map<Long, Long>): Set<Pair<Long, Int>> {
         clearAll()
         val loadedCells = mutableSetOf<Pair<Long, Int>>()
         val projectDir = File(context.filesDir, "project_drawings_$projectId")
@@ -272,16 +272,17 @@ class DrawingManager {
             if (file.name.endsWith(".png")) {
                 val parts = file.name.removeSuffix(".png").split("_")
                 if (parts.size == 2) {
-                    val layerId = parts[0].toLongOrNull() ?: continue
+                    val savedLayerId = parts[0].toLongOrNull() ?: continue
                     val frameIndex = parts[1].toIntOrNull() ?: continue
+                    val remappedLayerId = layerIdMap[savedLayerId] ?: savedLayerId
                     try {
                         val bmp = BitmapFactory.decodeFile(file.absolutePath)
                         if (bmp != null) {
                             val mutableBmp = bmp.copy(Bitmap.Config.ARGB_8888, true)
                             bmp.recycle()
-                            val key = makeKey(layerId, frameIndex)
+                            val key = makeKey(remappedLayerId, frameIndex)
                             bitmaps[key] = mutableBmp
-                            loadedCells.add(Pair(layerId, frameIndex))
+                            loadedCells.add(Pair(remappedLayerId, frameIndex))
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -290,6 +291,10 @@ class DrawingManager {
             }
         }
         return loadedCells
+    }
+
+    fun loadBitmaps(context: Context, projectId: String): Set<Pair<Long, Int>> {
+        return loadBitmapsWithLayerMapping(context, projectId, emptyMap())
     }
 
     fun deleteProjectDrawings(context: Context, projectId: String) {
