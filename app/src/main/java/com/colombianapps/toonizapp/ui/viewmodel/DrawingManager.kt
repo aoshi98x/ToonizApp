@@ -181,9 +181,9 @@ class DrawingManager {
 
     fun shiftExposureBitmaps(layerId: Long, startFrame: Int, delta: Int, currentExposure: Int) {
         if (delta == 0) return
-        val boundary = startFrame + currentExposure
 
         if (delta > 0) {
+            val boundary = startFrame + currentExposure
             val targetKeys = bitmaps.keys.filter { key ->
                 val lId = key shr 32
                 val fIndex = (key and 0xFFFFFFFFL).toInt()
@@ -202,15 +202,16 @@ class DrawingManager {
             }
         } else {
             val shrinkAmount = -delta
+            val startBoundary = startFrame
             val targetKeys = bitmaps.keys.filter { key ->
                 val lId = key shr 32
                 val fIndex = (key and 0xFFFFFFFFL).toInt()
-                lId == layerId && fIndex >= boundary
+                lId == layerId && fIndex >= startBoundary
             }.sortedBy { (it and 0xFFFFFFFFL).toInt() }
 
             for (oldKey in targetKeys) {
                 val fIndex = (oldKey and 0xFFFFFFFFL).toInt()
-                val newFIndex = (fIndex - shrinkAmount).coerceAtLeast(boundary + delta)
+                val newFIndex = (fIndex - shrinkAmount).coerceAtLeast(1)
                 val newKey = makeKey(layerId, newFIndex)
 
                 val bmp = bitmaps.remove(oldKey)

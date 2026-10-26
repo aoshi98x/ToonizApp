@@ -26,7 +26,9 @@ import uniffi.rust_core.Stroke
 import uniffi.rust_core.ToolType
 import java.io.File
 import java.util.ArrayDeque
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 enum class SelectionType {
     RECTANGLE,
@@ -47,7 +49,8 @@ enum class SelectionHandle {
     TOP_LEFT,
     TOP_RIGHT,
     BOTTOM_LEFT,
-    BOTTOM_RIGHT
+    BOTTOM_RIGHT,
+    ROTATE
 }
 
 data class FrameCellSummary(
@@ -55,16 +58,41 @@ data class FrameCellSummary(
     val exposure: Int
 )
 
-data class ClipboardEntry(
-    val relativeFrameIndex: Int,
-    val bitmap: Bitmap?,
-    val exposure: Int
-)
-
 class StudioViewModel(application: Application) : AndroidViewModel(application) {
     val projectRepository = ProjectRepository(application)
     val engine = AnimationEngine()
     val drawingManager = DrawingManager()
+
+    val playbackManager = PlaybackManager(
+        scope = viewModelScope,
+        getCurrentFrame = { currentFrame },
+        updateCurrentFrame = { updateCurrentFrame(it) },
+        getFps = { currentProject?.fps ?: 24 },
+        getMaxFrame = { getMaxFrameWithStrokes() },
+        hasLayers = { layers.isNotEmpty() }
+    )
+
+    val selectionManager = SelectionManager(
+        drawingManager = drawingManager,
+        getActiveLayerId = { activeLayerId },
+        getCurrentFrame = { currentFrame },
+        onDeleteDrawingAtFrame = { layerId, frame -> deleteDrawingAtFrame(layerId, frame) },
+        onInvalidateCellCache = { invalidateCellCache() },
+        onSetUnsavedChanges = { hasUnsavedChanges = it },
+        onIncrementDrawNonce = { drawNonce++ },
+        getCellSummary = { l, f -> getCellSummary(l, f) }
+    )
+
+    val undoRedoManager = UndoRedoManager(
+        drawingManager = drawingManager,
+        getActiveLayerId = { activeLayerId },
+        getCurrentFrame = { currentFrame },
+        onInvalidateCellCache = { invalidateCellCache() },
+        onSetUnsavedChanges = { hasUnsavedChanges = it },
+        onIncrementDrawNonce = { drawNonce++ }
+    )
+
+    val drawingToolContext = DrawingToolContext()
 
     var currentProject by mutableStateOf<AnimationProject?>(null)
         private set
@@ -93,8 +121,10 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     // Selection Transform values
     var selectionScaleX by mutableStateOf(1f)
     var selectionScaleY by mutableStateOf(1f)
+    var selectionRotation by mutableStateOf(0f)
     var selectionOffsetX by mutableStateOf(0f)
     var selectionOffsetY by mutableStateOf(0f)
+    var initialRotationOffset = 0f
     var isSelectionFlippedHorizontally by mutableStateOf(false)
     var isSelectionFlippedVertically by mutableStateOf(false)
     var activeHandle by mutableStateOf(SelectionHandle.NONE)
@@ -157,8 +187,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     var layers by mutableStateOf(engine.getLayers())
         private set
 
-    var isPlaying by mutableStateOf(false)
-        private set
+    val isPlaying: Boolean get() = playbackManager.isPlaying
 
     var onionSkinPast by mutableStateOf(1)
         private set
@@ -172,25 +201,15 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     var isPointerDown by mutableStateOf(false)
         private set
 
-    var canUndo by mutableStateOf(false)
-        private set
-
-    var canRedo by mutableStateOf(false)
-        private set
+    val canUndo: Boolean get() = undoRedoManager.canUndo
+    val canRedo: Boolean get() = undoRedoManager.canRedo
 
     // Multi-Selection State for Timeline
-    var isSelectionMode by mutableStateOf(false)
-        private set
+    val isSelectionMode: Boolean get() = selectionManager.isSelectionMode
+    val selectedFrames: Set<Int> get() = selectionManager.selectedFrames
+    val hasClipboardData: Boolean get() = selectionManager.hasClipboardData
+    val copiedEntries: List<ClipboardEntry> get() = selectionManager.copiedEntries
 
-    var selectedFrames by mutableStateOf<Set<Int>>(emptySet())
-        private set
-
-    var hasClipboardData by mutableStateOf(false)
-        private set
-
-    private var copiedEntries = listOf<ClipboardEntry>()
-
-    private var playbackJob: Job? = null
     private var autoSaveJob: Job? = null
 
     // Layer Opacity Map (0.0 to 1.0) - MutableStateMap for Compose Observation!
@@ -240,6 +259,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         selectionBitmap = null
         selectionScaleX = 1f
         selectionScaleY = 1f
+        selectionRotation = 0f
         selectionOffsetX = 0f
         selectionOffsetY = 0f
         isSelectionFlippedHorizontally = false
@@ -322,75 +342,213 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         drawNonce++
     }
 
-    fun startHandleDrag(sheetX: Float, sheetY: Float) {
-        val bounds = selectionBounds ?: return
-        val transLeft = bounds.left + selectionOffsetX
-        val transTop = bounds.top + selectionOffsetY
-        val currentWidth = bounds.width * selectionScaleX
-        val currentHeight = bounds.height * selectionScaleY
-        val transRight = transLeft + currentWidth
-        val transBottom = transTop + currentHeight
+    /**
+     * Rota la selección activa en incrementos de 90 grados alrededor de su pivote central.
+     */
+    fun rotateSelection90() {
+        selectionRotation = (selectionRotation + 90f) % 360f
+        drawNonce++
+    }
 
+    /**
+     * Pivote de la selección (punto verde) en coordenadas de la hoja.
+     * Es el centro REAL del bitmap extraído + el desplazamiento acumulado.
+     * La UI debe usar esta misma función para dibujar el punto verde y los controladores.
+     */
+    fun getSelectionPivot(): Offset? {
+        val bounds = selectionBounds ?: return null
+        val bmp = selectionBitmap ?: return null
+        return Offset(
+            bounds.left + bmp.width / 2f + selectionOffsetX,
+            bounds.top + bmp.height / 2f + selectionOffsetY
+        )
+    }
+
+    /** Tamaño base (sin escalar) de la selección: siempre el del bitmap extraído. */
+    private fun selectionBaseSize(): Pair<Float, Float>? {
+        val bmp = selectionBitmap ?: return null
+        return bmp.width.coerceAtLeast(1).toFloat() to bmp.height.coerceAtLeast(1).toFloat()
+    }
+
+    /**
+     * Gesto de dos dedos sobre la selección (pellizco / rotación / arrastre).
+     * La rotación y el zoom se aplican SIEMPRE respecto al pivote de la selección,
+     * nunca respecto al centroide de los dedos.
+     *
+     * @param panX, panY desplazamiento del centroide en coordenadas de la hoja
+     * @param zoom factor multiplicativo del gesto
+     * @param rotationDeltaDegrees incremento de rotación del gesto, en grados (sentido horario positivo)
+     */
+    fun transformSelectionByGesture(panX: Float, panY: Float, zoom: Float, rotationDeltaDegrees: Float) {
+        if (!isSelectionActive || selectionBitmap == null) return
+        selectionRotation = ((selectionRotation + rotationDeltaDegrees) % 360f + 360f) % 360f
+        if (zoom > 0f && zoom != 1f) {
+            selectionScaleX = (selectionScaleX * zoom).coerceAtLeast(0.05f)
+            selectionScaleY = (selectionScaleY * zoom).coerceAtLeast(0.05f)
+        }
+        // Como el pivote es el centro, mover = sumar al offset (el centro rota sobre sí mismo)
+        selectionOffsetX += panX
+        selectionOffsetY += panY
+        drawNonce++
+    }
+
+    /**
+     * Detecta qué controlador de la herramienta de selección se presiona (esquinas, centro o manejador de rotación superior).
+     * Mapea las coordenadas del toque al espacio local rotado respecto al pivote central.
+     */
+    fun startHandleDrag(sheetX: Float, sheetY: Float) {
+        val (origW, origH) = selectionBaseSize() ?: return
+        val pivot = getSelectionPivot() ?: return
+        val scaledW = (origW * selectionScaleX).coerceAtLeast(10f)
+        val scaledH = (origH * selectionScaleY).coerceAtLeast(10f)
+
+        // Pivote (punto verde) = centro real de la selección
+        val centerX = pivot.x
+        val centerY = pivot.y
+
+        // Trasladar toque al pivote central (0,0)
+        val unRotX = sheetX - centerX
+        val unRotY = sheetY - centerY
+
+        // Des-rotar el punto de contacto para probar colisión con los manejadores en espacio local
+        val rad = Math.toRadians(-selectionRotation.toDouble())
+        val localX = (unRotX * cos(rad) - unRotY * sin(rad)).toFloat()
+        val localY = (unRotX * sin(rad) + unRotY * cos(rad)).toFloat()
+
+        val halfW = scaledW / 2f
+        val halfH = scaledH / 2f
         val hitRadius = 35f
 
-        val isTL = hypot(sheetX - transLeft, sheetY - transTop) < hitRadius
-        val isTR = hypot(sheetX - transRight, sheetY - transTop) < hitRadius
-        val isBL = hypot(sheetX - transLeft, sheetY - transBottom) < hitRadius
-        val isBR = hypot(sheetX - transRight, sheetY - transBottom) < hitRadius
+        // Detección del manejador de rotación (ubicado a -35px sobre la parte superior central)
+        val isRotate = hypot(localX - 0f, localY - (-halfH - 35f)) < hitRadius
+        val isTL = hypot(localX - (-halfW), localY - (-halfH)) < hitRadius
+        val isTR = hypot(localX - halfW, localY - (-halfH)) < hitRadius
+        val isBL = hypot(localX - (-halfW), localY - halfH) < hitRadius
+        val isBR = hypot(localX - halfW, localY - halfH) < hitRadius
 
         activeHandle = when {
+            isRotate -> SelectionHandle.ROTATE
             isTL -> SelectionHandle.TOP_LEFT
             isTR -> SelectionHandle.TOP_RIGHT
             isBL -> SelectionHandle.BOTTOM_LEFT
             isBR -> SelectionHandle.BOTTOM_RIGHT
-            sheetX in transLeft..transRight && sheetY in transTop..transBottom -> SelectionHandle.MOVE
+            localX in -halfW..halfW && localY in -halfH..halfH -> SelectionHandle.MOVE
             else -> SelectionHandle.NONE
+        }
+
+        if (activeHandle == SelectionHandle.ROTATE) {
+            val touchAngle = Math.toDegrees(kotlin.math.atan2((sheetY - centerY).toDouble(), (sheetX - centerX).toDouble())).toFloat() + 90f
+            initialRotationOffset = (selectionRotation - touchAngle + 360f) % 360f
         }
     }
 
-    fun handleSelectionDrag(deltaX: Float, deltaY: Float) {
-        val bounds = selectionBounds ?: return
-        val origW = bounds.width.coerceAtLeast(1f)
-        val origH = bounds.height.coerceAtLeast(1f)
+    /**
+     * Procesa el arrastre continuo del controlador activo.
+     * Para ROTATE: Calcula el ángulo en grados entre el pivote central (punto verde) y la posición del dedo.
+     */
+    fun handleSelectionDrag(deltaX: Float, deltaY: Float, sheetX: Float = 0f, sheetY: Float = 0f) {
+        val (origW, origH) = selectionBaseSize() ?: return
+        val pivot = getSelectionPivot() ?: return
+        val centerX = pivot.x
+        val centerY = pivot.y
+
+        val curW = origW * selectionScaleX
+        val curH = origH * selectionScaleY
+
+        val rad = Math.toRadians(selectionRotation.toDouble())
+        val cosR = cos(rad).toFloat()
+        val sinR = sin(rad).toFloat()
+
+        // Proyectar deltaX y deltaY globales en los ejes locales rotados de la caja
+        val localDeltaX = deltaX * cosR + deltaY * sinR
+        val localDeltaY = -deltaX * sinR + deltaY * cosR
 
         when (activeHandle) {
+            SelectionHandle.ROTATE -> {
+                val currentTouchAngle = Math.toDegrees(kotlin.math.atan2((sheetY - centerY).toDouble(), (sheetX - centerX).toDouble())).toFloat() + 90f
+                selectionRotation = (currentTouchAngle + initialRotationOffset + 360f) % 360f
+            }
             SelectionHandle.MOVE -> {
                 selectionOffsetX += deltaX
                 selectionOffsetY += deltaY
             }
             SelectionHandle.BOTTOM_RIGHT -> {
-                val newW = (origW * selectionScaleX + deltaX).coerceAtLeast(10f)
-                val newH = (origH * selectionScaleY + deltaY).coerceAtLeast(10f)
+                val newW = (curW + localDeltaX).coerceAtLeast(10f)
+                val newH = (curH + localDeltaY).coerceAtLeast(10f)
+                val dW = newW - curW
+                val dH = newH - curH
+
+                val localCenterShiftX = dW / 2f
+                val localCenterShiftY = dH / 2f
+
+                val globalShiftX = localCenterShiftX * cosR - localCenterShiftY * sinR
+                val globalShiftY = localCenterShiftX * sinR + localCenterShiftY * cosR
+
                 selectionScaleX = newW / origW
                 selectionScaleY = newH / origH
+                selectionOffsetX += globalShiftX
+                selectionOffsetY += globalShiftY
             }
             SelectionHandle.BOTTOM_LEFT -> {
-                val newW = (origW * selectionScaleX - deltaX).coerceAtLeast(10f)
-                val newH = (origH * selectionScaleY + deltaY).coerceAtLeast(10f)
-                selectionOffsetX += (origW * selectionScaleX - newW)
+                val newW = (curW - localDeltaX).coerceAtLeast(10f)
+                val newH = (curH + localDeltaY).coerceAtLeast(10f)
+                val dW = newW - curW
+                val dH = newH - curH
+
+                val localCenterShiftX = -dW / 2f
+                val localCenterShiftY = dH / 2f
+
+                val globalShiftX = localCenterShiftX * cosR - localCenterShiftY * sinR
+                val globalShiftY = localCenterShiftX * sinR + localCenterShiftY * cosR
+
                 selectionScaleX = newW / origW
                 selectionScaleY = newH / origH
+                selectionOffsetX += globalShiftX
+                selectionOffsetY += globalShiftY
             }
             SelectionHandle.TOP_RIGHT -> {
-                val newW = (origW * selectionScaleX + deltaX).coerceAtLeast(10f)
-                val newH = (origH * selectionScaleY - deltaY).coerceAtLeast(10f)
-                selectionOffsetY += (origH * selectionScaleY - newH)
+                val newW = (curW + localDeltaX).coerceAtLeast(10f)
+                val newH = (curH - localDeltaY).coerceAtLeast(10f)
+                val dW = newW - curW
+                val dH = newH - curH
+
+                val localCenterShiftX = dW / 2f
+                val localCenterShiftY = -dH / 2f
+
+                val globalShiftX = localCenterShiftX * cosR - localCenterShiftY * sinR
+                val globalShiftY = localCenterShiftX * sinR + localCenterShiftY * cosR
+
                 selectionScaleX = newW / origW
                 selectionScaleY = newH / origH
+                selectionOffsetX += globalShiftX
+                selectionOffsetY += globalShiftY
             }
             SelectionHandle.TOP_LEFT -> {
-                val newW = (origW * selectionScaleX - deltaX).coerceAtLeast(10f)
-                val newH = (origH * selectionScaleY - deltaY).coerceAtLeast(10f)
-                selectionOffsetX += (origW * selectionScaleX - newW)
-                selectionOffsetY += (origH * selectionScaleY - newH)
+                val newW = (curW - localDeltaX).coerceAtLeast(10f)
+                val newH = (curH - localDeltaY).coerceAtLeast(10f)
+                val dW = newW - curW
+                val dH = newH - curH
+
+                val localCenterShiftX = -dW / 2f
+                val localCenterShiftY = -dH / 2f
+
+                val globalShiftX = localCenterShiftX * cosR - localCenterShiftY * sinR
+                val globalShiftY = localCenterShiftX * sinR + localCenterShiftY * cosR
+
                 selectionScaleX = newW / origW
                 selectionScaleY = newH / origH
+                selectionOffsetX += globalShiftX
+                selectionOffsetY += globalShiftY
             }
             else -> {}
         }
         drawNonce++
     }
 
+    /**
+     * Aplica la transformación final (escala, rotación y traslación) sobre el mapa de bits del dibujo activo.
+     * La matriz gráfica pivota exactamente en el centro (bmp.width/2, bmp.height/2) alineado al pivote verde.
+     */
     fun applySelectionTransform() {
         val bounds = selectionBounds ?: return
         val bmp = selectionBitmap ?: return
@@ -403,8 +561,21 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         val matrix = android.graphics.Matrix().apply {
             val scaleXVal = if (isSelectionFlippedHorizontally) -selectionScaleX else selectionScaleX
             val scaleYVal = if (isSelectionFlippedVertically) -selectionScaleY else selectionScaleY
-            postScale(scaleXVal, scaleYVal, bmp.width / 2f, bmp.height / 2f)
-            postTranslate(bounds.left + selectionOffsetX, bounds.top + selectionOffsetY)
+            val bmpCenterX = bmp.width / 2f
+            val bmpCenterY = bmp.height / 2f
+
+            // Mismo pivote que usa la UI (centro real del bitmap + offset)
+            val targetCenterX = bounds.left + bmp.width / 2f + selectionOffsetX
+            val targetCenterY = bounds.top + bmp.height / 2f + selectionOffsetY
+
+            // 1. Alinear el centro del bitmap extraído en (0,0)
+            postTranslate(-bmpCenterX, -bmpCenterY)
+            // 2. Escalar respecto a (0,0)
+            postScale(scaleXVal, scaleYVal)
+            // 3. Rotar respecto a (0,0)
+            postRotate(selectionRotation)
+            // 4. Trasladar el centro (0,0) a las coordenadas finales del pivote verde (targetCenterX, targetCenterY)
+            postTranslate(targetCenterX, targetCenterY)
         }
 
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
@@ -417,6 +588,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         selectionBitmap = null
         selectionScaleX = 1f
         selectionScaleY = 1f
+        selectionRotation = 0f
         selectionOffsetX = 0f
         selectionOffsetY = 0f
         isSelectionFlippedHorizontally = false
@@ -433,34 +605,37 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        selectionBounds = bounds
+        val srcBmp = drawingManager.findBitmap(activeLayerId, currentFrame)
+        if (srcBmp == null || srcBmp.isRecycled) {
+            clearSelectionBounds()
+            return
+        }
+
+        // Rectángulo entero y recortado al lienzo: es la región REAL extraída.
+        // selectionBounds debe coincidir exactamente con el bitmap para que el pivote
+        // (centro de la selección) sea el correcto aunque se dibuje cerca de los bordes.
+        val left = kotlin.math.floor(bounds.left).toInt().coerceIn(0, srcBmp.width - 1)
+        val top = kotlin.math.floor(bounds.top).toInt().coerceIn(0, srcBmp.height - 1)
+        val right = kotlin.math.ceil(bounds.right).toInt().coerceIn(left + 1, srcBmp.width)
+        val bottom = kotlin.math.ceil(bounds.bottom).toInt().coerceIn(top + 1, srcBmp.height)
+        val width = right - left
+        val height = bottom - top
+
+        if (width <= 0 || height <= 0) {
+            clearSelectionBounds()
+            return
+        }
+
+        selectionBitmap = Bitmap.createBitmap(srcBmp, left, top, width, height)
+        selectionBounds = Rect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
         isSelectionActive = true
 
-        val srcBmp = drawingManager.findBitmap(activeLayerId, currentFrame)
-        if (srcBmp != null && !srcBmp.isRecycled) {
-            val left = bounds.left.toInt().coerceIn(0, srcBmp.width - 1)
-            val top = bounds.top.toInt().coerceIn(0, srcBmp.height - 1)
-            val width = bounds.width.toInt().coerceIn(1, srcBmp.width - left)
-            val height = bounds.height.toInt().coerceIn(1, srcBmp.height - top)
-
-            if (width > 0 && height > 0) {
-                val extracted = Bitmap.createBitmap(srcBmp, left, top, width, height)
-                selectionBitmap = extracted
-
-                // Cut/Clear extracted pixels from source bitmap
-                val canvas = android.graphics.Canvas(srcBmp)
-                val clearPaint = android.graphics.Paint().apply {
-                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
-                }
-                canvas.drawRect(
-                    bounds.left,
-                    bounds.top,
-                    bounds.right,
-                    bounds.bottom,
-                    clearPaint
-                )
-            }
+        // Cut/Clear extracted pixels from source bitmap
+        val canvas = android.graphics.Canvas(srcBmp)
+        val clearPaint = android.graphics.Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
         }
+        canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), clearPaint)
         drawNonce++
     }
 
@@ -474,15 +649,11 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun updateUndoRedoStates() {
-        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
-        canUndo = undoMap[key]?.isNotEmpty() == true
-        canRedo = redoMap[key]?.isNotEmpty() == true
+        undoRedoManager.updateUndoRedoStates()
     }
 
     fun stopPlayback() {
-        isPlaying = false
-        playbackJob?.cancel()
-        playbackJob = null
+        playbackManager.stopPlayback()
         currentScreenPosition = null
         isPointerDown = false
     }
@@ -513,106 +684,102 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     // -------------------------------------------------------------------------
     // TIMELINE MULTI-SELECTION & CLIPBOARD ACTIONS
     // -------------------------------------------------------------------------
-    fun toggleFrameSelection(frame: Int) {
-        if (!isSelectionMode) {
-            isSelectionMode = true
-            selectedFrames = setOf(frame)
-            return
-        }
-        selectedFrames = if (selectedFrames.contains(frame)) {
-            val updated = selectedFrames - frame
-            if (updated.isEmpty()) isSelectionMode = false
-            updated
+    fun toggleFrameSelection(frame: Int) = selectionManager.toggleFrameSelection(frame)
+
+    fun clearSelection() = selectionManager.clearSelection()
+
+    fun copySelectedFrames() = selectionManager.copySelectedFrames()
+
+    fun deleteSelectedFrames() = selectionManager.deleteSelectedFrames()
+
+    fun deleteDrawingAtFrame(layerId: Long, frameIndex: Int) {
+        val strokes = engine.getStrokesForLayerAndFrame(layerId.toULong(), frameIndex.toUInt())
+        if (strokes.isNotEmpty()) {
+            val actualStartFrame = strokes.first().frameIndex.toInt()
+            val exp = strokes.first().exposure.toInt().coerceAtLeast(1)
+
+            // 1. Shift exposure in Rust engine FIRST (-exp reduces exposure to 0 and shifts subsequent frames left by exp)
+            engine.shiftExposure(layerId.toULong(), actualStartFrame.toUInt(), -exp)
+
+            // 2. Clear bitmap and shift subsequent bitmaps left in DrawingManager
+            drawingManager.clear(layerId, actualStartFrame)
+            drawingManager.shiftExposureBitmaps(layerId, actualStartFrame + exp, -exp, 0)
         } else {
-            selectedFrames + frame
+            engine.shiftExposure(layerId.toULong(), frameIndex.toUInt(), -1)
+            drawingManager.clear(layerId, frameIndex)
+            drawingManager.shiftExposureBitmaps(layerId, frameIndex + 1, -1, 0)
         }
     }
 
-    fun clearSelection() {
-        isSelectionMode = false
-        selectedFrames = emptySet()
-    }
 
-    fun copySelectedFrames() {
-        if (activeLayerId == 0L || selectedFrames.isEmpty()) return
-        val sorted = selectedFrames.sorted()
-        val firstFrame = sorted.first()
-
-        copiedEntries.forEach { it.bitmap?.recycle() }
-
-        val entries = mutableListOf<ClipboardEntry>()
-        for (f in sorted) {
-            val bmp = drawingManager.copyBitmap(activeLayerId, f)
-            val summary = getCellSummary(activeLayerId.toULong(), f.toUInt())
-            entries.add(ClipboardEntry(f - firstFrame, bmp, summary.exposure))
-        }
-        copiedEntries = entries
-        hasClipboardData = true
-        clearSelection()
-    }
-
-    fun deleteSelectedFrames() {
-        if (activeLayerId == 0L || selectedFrames.isEmpty()) return
-        for (f in selectedFrames) {
-            engine.setActiveLayer(activeLayerId.toULong())
-            engine.setCurrentFrame(f.toUInt())
-            engine.clearCurrentFrame()
-            drawingManager.clear(activeLayerId, f)
-        }
-        hasUnsavedChanges = true
-        drawNonce++
-        clearSelection()
-        invalidateCellCache()
-    }
 
     fun pasteToSelectedFrames() {
         if (activeLayerId == 0L || copiedEntries.isEmpty()) return
 
         val targetFrames = if (selectedFrames.isNotEmpty()) selectedFrames.sorted() else listOf(currentFrame)
         val startFrame = targetFrames.first()
-        val totalTargetFrames = targetFrames.size
 
-        // Smart Paste logic: 1 drawing into multiple frames -> set initial drawing & extend exposure
-        if (copiedEntries.size == 1 && totalTargetFrames > 1) {
-            val entry = copiedEntries.first()
+        for (entry in copiedEntries) {
+            val destFrame = startFrame + entry.relativeFrameIndex
+            val expToApply = entry.exposure.coerceAtLeast(1)
 
-            val currentSummary = getCellSummary(activeLayerId.toULong(), startFrame.toUInt())
-            if (currentSummary.hasStrokes) {
-                drawingManager.shiftExposureBitmaps(activeLayerId, startFrame, totalTargetFrames, 1)
-                engine.shiftExposure(activeLayerId.toULong(), startFrame.toUInt(), totalTargetFrames)
+            val strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), destFrame.toUInt())
+            var eReplaced = 0
+
+            if (strokes.isNotEmpty()) {
+                val oldStartFrame = strokes.first().frameIndex.toInt()
+                val oldExposure = strokes.first().exposure.toInt()
+                val oldEndFrame = oldStartFrame + oldExposure - 1
+                val oldBmp = drawingManager.findBitmap(activeLayerId, destFrame)
+
+                eReplaced = (oldEndFrame - destFrame + 1).coerceAtLeast(1)
+
+                // If old drawing extends beyond pasted drawing, preserve remaining old drawing
+                if (oldEndFrame >= destFrame + expToApply && oldBmp != null) {
+                    val remainingStart = destFrame + expToApply
+                    val remainingExp = oldEndFrame - remainingStart + 1
+                    if (remainingExp > 0) {
+                        val copyOld = oldBmp.copy(Bitmap.Config.ARGB_8888, true)
+                        drawingManager.setBitmap(activeLayerId, remainingStart, copyOld)
+                        copyOld.recycle()
+                        engine.setActiveLayer(activeLayerId.toULong())
+                        engine.setCurrentFrame(remainingStart.toUInt())
+                        engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+                        engine.endStroke()
+                        if (remainingExp > 1) {
+                            engine.shiftExposure(activeLayerId.toULong(), remainingStart.toUInt(), remainingExp - 1)
+                        }
+                    }
+                }
             }
+
+            val deltaShift = expToApply - eReplaced
+            if (deltaShift > 0) {
+                // Shift subsequent drawings right to make room without overwriting them
+                val shiftStart = destFrame + eReplaced
+                drawingManager.shiftExposureBitmaps(activeLayerId, shiftStart, deltaShift, 0)
+                engine.shiftExposure(activeLayerId.toULong(), shiftStart.toUInt(), deltaShift)
+            }
+
+            drawingManager.clear(activeLayerId, destFrame)
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(destFrame.toUInt())
+            engine.clearCurrentFrame()
 
             if (entry.bitmap != null) {
                 val copyBmp = entry.bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                drawingManager.setBitmap(activeLayerId, startFrame, copyBmp)
+                drawingManager.setBitmap(activeLayerId, destFrame, copyBmp)
                 copyBmp.recycle()
             }
 
-            engine.setActiveLayer(activeLayerId.toULong())
-            engine.setCurrentFrame(startFrame.toUInt())
             engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
             engine.endStroke()
 
-            if (totalTargetFrames > 1) {
-                engine.shiftExposure(activeLayerId.toULong(), startFrame.toUInt(), totalTargetFrames - 1)
+            if (expToApply > 1) {
+                engine.shiftExposure(activeLayerId.toULong(), destFrame.toUInt(), expToApply - 1)
             }
-
-            updateCurrentFrame(startFrame)
-        } else {
-            for (entry in copiedEntries) {
-                val destFrame = startFrame + entry.relativeFrameIndex
-                if (entry.bitmap != null) {
-                    val copyBmp = entry.bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                    drawingManager.setBitmap(activeLayerId, destFrame, copyBmp)
-                    copyBmp.recycle()
-                }
-                engine.setActiveLayer(activeLayerId.toULong())
-                engine.setCurrentFrame(destFrame.toUInt())
-                engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
-                engine.endStroke()
-            }
-            updateCurrentFrame(startFrame)
         }
+        updateCurrentFrame(startFrame)
 
         hasUnsavedChanges = true
         drawNonce++
@@ -987,12 +1154,19 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
                 // Activate automatic selection transform mode
                 activeTool = CanvasTool.SELECTION
                 activeSelectionType = SelectionType.RECTANGLE
-                selectionBounds = Rect(left, top, left + scaledW, top + scaledH)
-                isSelectionActive = true
-
-                val extracted = Bitmap.createBitmap(composedBmp, left.toInt().coerceAtLeast(0), top.toInt().coerceAtLeast(0), scaledW.coerceAtMost(canvasW - left.toInt()), scaledH.coerceAtMost(canvasH - top.toInt()))
+                val exLeft = left.toInt().coerceIn(0, canvasW - 1)
+                val exTop = top.toInt().coerceIn(0, canvasH - 1)
+                val exW = scaledW.coerceIn(1, canvasW - exLeft)
+                val exH = scaledH.coerceIn(1, canvasH - exTop)
+                val extracted = Bitmap.createBitmap(composedBmp, exLeft, exTop, exW, exH)
                 composedBmp.recycle()
                 selectionBitmap = extracted
+                // Los bounds coinciden exactamente con el bitmap extraído (pivote = su centro)
+                selectionBounds = Rect(
+                    exLeft.toFloat(), exTop.toFloat(),
+                    (exLeft + exW).toFloat(), (exTop + exH).toFloat()
+                )
+                isSelectionActive = true
 
                 // Clear layer bitmap in DrawingManager so no duplicate background ghost image remains!
                 val layerBmp = drawingManager.getBitmap(newLayerId.toLong(), currentFrame)
@@ -1159,23 +1333,18 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun adjustExposure(delta: Int) {
-        if (activeLayerId == 0L) return
+        if (activeLayerId == 0L || delta == 0) return
         val strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), currentFrame.toUInt())
-        val actualStartFrame = if (strokes.isNotEmpty()) strokes.first().frameIndex.toInt() else currentFrame
-        val currentExp = if (strokes.isNotEmpty()) strokes.first().exposure.toInt() else 1
+        if (strokes.isEmpty()) return
 
-        if (delta < 0 && currentExp <= 1) {
-            // Delete 1-frame drawing and shift subsequent frames left
-            drawingManager.clear(activeLayerId, actualStartFrame)
-            engine.setActiveLayer(activeLayerId.toULong())
-            engine.setCurrentFrame(actualStartFrame.toUInt())
-            engine.clearCurrentFrame()
-            drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame + 1, -1, 1)
-            engine.shiftExposure(activeLayerId.toULong(), actualStartFrame.toUInt(), -1)
-        } else {
-            drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame, delta, currentExp)
-            engine.shiftExposure(activeLayerId.toULong(), actualStartFrame.toUInt(), delta)
-        }
+        val actualStartFrame = strokes.first().frameIndex.toInt()
+        val currentExp = strokes.first().exposure.toInt()
+
+        // If trying to decrease exposure and exposure is already 1, do nothing!
+        if (delta < 0 && currentExp <= 1) return
+
+        drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame, delta, currentExp)
+        engine.shiftExposure(activeLayerId.toULong(), actualStartFrame.toUInt(), delta)
 
         hasUnsavedChanges = true
         drawNonce++
@@ -1235,85 +1404,30 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun togglePlayback() {
-        if (layers.isEmpty()) return
-        if (isPlaying) {
-            stopPlayback()
-        } else {
-            isPlaying = true
-            val fps = currentProject?.fps ?: 24
-            val maxFrame = getMaxFrameWithStrokes()
-
-            playbackJob = viewModelScope.launch {
-                val startSystemTime = System.currentTimeMillis()
-                var frameIndex = currentFrame
-                var stepCount = 0L
-
-                while (isPlaying) {
-                    stepCount++
-                    val targetTime = startSystemTime + (stepCount * 1000L / fps)
-                    val delayMs = (targetTime - System.currentTimeMillis()).coerceAtLeast(1L)
-                    delay(delayMs)
-
-                    frameIndex = if (frameIndex >= maxFrame) 1 else frameIndex + 1
-                    updateCurrentFrame(frameIndex)
-                }
-            }
-        }
+        playbackManager.togglePlayback()
     }
 
     fun startStroke(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
-
-        val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
-        val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
-        val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)
-        if (snapshot != null) {
-            if (undoStack.size >= 30) {
-                undoStack.removeFirst().recycle()
-            }
-            undoStack.addLast(snapshot)
-        }
-
-        redoMap[key]?.let { stack ->
-            stack.forEach { it.recycle() }
-            stack.clear()
-        }
-
-        updateUndoRedoStates()
-
-        val colorInt = currentColorArgb
-        if (selectedTool == ToolType.PENCIL) {
-            engine.startStroke(worldX, worldY, pressure, selectedTool, colorInt.toUInt(), strokeWidth)
-            drawingManager.startPath(worldX, worldY, pressure)
-        } else {
-            val isSoft = selectedTool == ToolType.SOFT_ERASER
-            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
-            drawingManager.startPath(worldX, worldY, pressure)
-        }
+        undoRedoManager.recordStrokeStart()
+        val strategy = drawingToolContext.getStrategy(selectedTool)
+        strategy.startStroke(engine, drawingManager, activeLayerId, currentFrame, worldX, worldY, pressure, currentColorArgb, strokeWidth, strokeHardness)
         hasUnsavedChanges = true
         drawNonce++
     }
 
     fun addPoint(worldX: Float, worldY: Float, pressure: Float) {
         if (isPlaying || activeLayerId == 0L) return
-        val colorInt = currentColorArgb
-        if (selectedTool == ToolType.PENCIL) {
-            engine.addPoint(worldX, worldY, pressure)
-            drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, colorInt, strokeWidth, selectedTool, strokeHardness)
-        } else {
-            val isSoft = selectedTool == ToolType.SOFT_ERASER
-            engine.eraseAt(worldX, worldY, strokeWidth * 2.5f, strokeHardness, isSoft)
-            drawingManager.addPathPoint(activeLayerId, currentFrame, worldX, worldY, pressure, 0, strokeWidth * 2.5f, selectedTool, strokeHardness)
-        }
+        val strategy = drawingToolContext.getStrategy(selectedTool)
+        strategy.addPoint(engine, drawingManager, activeLayerId, currentFrame, worldX, worldY, pressure, currentColorArgb, strokeWidth, strokeHardness)
         hasUnsavedChanges = true
         drawNonce++
     }
 
     fun endStroke() {
         if (isPlaying || activeLayerId == 0L) return
-        if (selectedTool == ToolType.PENCIL) {
-            engine.endStroke()
-        }
+        val strategy = drawingToolContext.getStrategy(selectedTool)
+        strategy.endStroke(engine, drawingManager, activeLayerId, currentFrame)
         hasUnsavedChanges = true
         updateUndoRedoStates()
         invalidateCellCache()
@@ -1372,7 +1486,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearCurrentFrame() {
         if (activeLayerId == 0L) return
-        
+
         val key = (activeLayerId shl 32) or (currentFrame.toLong() and 0xFFFFFFFFL)
         val undoStack = undoMap.getOrPut(key) { ArrayDeque() }
         val snapshot = drawingManager.copyBitmap(activeLayerId, currentFrame)

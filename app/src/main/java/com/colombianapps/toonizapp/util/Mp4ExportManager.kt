@@ -61,43 +61,54 @@ object Mp4ExportManager {
         val composedBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val composedCanvas = Canvas(composedBmp)
 
-        for (f in 1..maxFrame) {
-            // 1. Compose white background + layer bitmaps for frame f
-            composedCanvas.drawColor(Color.WHITE)
-            for (layer in layers) {
-                val bmp = viewModel.drawingManager.findBitmap(layer.id.toLong(), f)
-                if (bmp != null && !bmp.isRecycled) {
-                    composedCanvas.drawBitmap(bmp, 0f, 0f, null)
+        val frameDurationMs = (1000L / fps).coerceAtLeast(1L)
+
+        try {
+            for (f in 1..maxFrame) {
+                // 1. Compose white background + layer bitmaps for frame f
+                composedCanvas.drawColor(Color.WHITE)
+                for (layer in layers) {
+                    val bmp = viewModel.drawingManager.findBitmap(layer.id.toLong(), f)
+                    if (bmp != null && !bmp.isRecycled) {
+                        composedCanvas.drawBitmap(bmp, 0f, 0f, null)
+                    }
                 }
+
+                // 2. Render composed frame to encoder surface
+                val surfaceCanvas = inputSurface.lockHardwareCanvas()
+                surfaceCanvas.drawBitmap(composedBmp, 0f, 0f, null)
+                inputSurface.unlockCanvasAndPost(surfaceCanvas)
+
+                // 3. Pace frame delivery to ensure MediaCodec stamps timestamps corresponding to project FPS
+                try {
+                    Thread.sleep(frameDurationMs)
+                } catch (_: Exception) {}
+
+                // 3. Drain encoder buffers
+                drainEncoder(encoder, muxer, bufferInfo, false, trackIndex, muxerStarted) { newTrack, started ->
+                    trackIndex = newTrack
+                    muxerStarted = started
+                }
+
+                onProgress(f.toFloat() / maxFrame)
             }
 
-            // 2. Render composed frame to encoder surface
-            val surfaceCanvas = inputSurface.lockHardwareCanvas()
-            surfaceCanvas.drawBitmap(composedBmp, 0f, 0f, null)
-            inputSurface.unlockCanvasAndPost(surfaceCanvas)
-
-            // 3. Drain encoder buffers
-            drainEncoder(encoder, muxer, bufferInfo, false, trackIndex, muxerStarted) { newTrack, started ->
-                trackIndex = newTrack
-                muxerStarted = started
+            // Signal End of Stream
+            encoder.signalEndOfInputStream()
+            drainEncoder(encoder, muxer, bufferInfo, true, trackIndex, muxerStarted) { _, _ -> }
+        } finally {
+            composedBmp.recycle()
+            try {
+                encoder.stop()
+                encoder.release()
+                inputSurface.release()
+            } catch (_: Exception) {}
+            if (muxerStarted) {
+                try {
+                    muxer.stop()
+                    muxer.release()
+                } catch (_: Exception) {}
             }
-
-            onProgress(f.toFloat() / maxFrame)
-        }
-
-        composedBmp.recycle()
-
-        // Signal End of Stream
-        encoder.signalEndOfInputStream()
-        drainEncoder(encoder, muxer, bufferInfo, true, trackIndex, muxerStarted) { _, _ -> }
-
-        encoder.stop()
-        encoder.release()
-        inputSurface.release()
-
-        if (muxerStarted) {
-            muxer.stop()
-            muxer.release()
         }
 
         return outputFile

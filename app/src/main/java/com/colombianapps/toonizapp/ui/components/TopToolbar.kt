@@ -237,6 +237,10 @@ fun TopToolbar(
                                     .graphicsLayer(rotationZ = 90f)
                             )
                         }
+                        // Rotate 90°
+                        IconButton(onClick = { viewModel.rotateSelection90() }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Rotar 90°", tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
                         // Clear Selection
                         Button(
                             onClick = { viewModel.clearSelectionBounds() },

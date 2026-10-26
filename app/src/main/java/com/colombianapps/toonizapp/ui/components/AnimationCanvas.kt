@@ -31,6 +31,43 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
+private data class SheetBounds(
+    val width: Float,
+    val height: Float,
+    val left: Float,
+    val top: Float
+)
+
+private fun calculateSheetBounds(
+    viewportWidth: Float,
+    viewportHeight: Float,
+    projectWidth: Int,
+    projectHeight: Int
+): SheetBounds {
+    val projW = projectWidth.toFloat().coerceAtLeast(1f)
+    val projH = projectHeight.toFloat().coerceAtLeast(1f)
+    val projRatio = projW / projH
+
+    val maxW = viewportWidth * 0.85f
+    val maxH = viewportHeight * 0.80f
+
+    val sheetW: Float
+    val sheetH: Float
+
+    if (maxW / maxH > projRatio) {
+        sheetH = maxH
+        sheetW = maxH * projRatio
+    } else {
+        sheetW = maxW
+        sheetH = maxW / projRatio
+    }
+
+    val sheetL = (viewportWidth - sheetW) / 2f
+    val sheetT = (viewportHeight - sheetH) / 2f
+
+    return SheetBounds(sheetW, sheetH, sheetL, sheetT)
+}
+
 @Composable
 fun AnimationCanvas(viewModel: StudioViewModel) {
     val focusManager = LocalFocusManager.current
@@ -55,12 +92,20 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
+                    detectTransformGestures { _, pan, zoom, rotation ->
                         if (viewModel.activeTool == CanvasTool.SELECTION && viewModel.isSelectionActive) {
-                            viewModel.selectionScaleX = (viewModel.selectionScaleX * zoom).coerceIn(0.1f, 10f)
-                            viewModel.selectionScaleY = (viewModel.selectionScaleY * zoom).coerceIn(0.1f, 10f)
-                            viewModel.selectionOffsetX += pan.x / viewModel.scale
-                            viewModel.selectionOffsetY += pan.y / viewModel.scale
+                            val currentScale = viewModel.scale
+                            val currentRotation = viewModel.rotation
+                            val rad = Math.toRadians(-currentRotation.toDouble())
+                            val cosRad = cos(rad).toFloat()
+                            val sinRad = sin(rad).toFloat()
+
+                            val rawDx = pan.x / currentScale
+                            val rawDy = pan.y / currentScale
+                            val panInSheetX = rawDx * cosRad - rawDy * sinRad
+                            val panInSheetY = rawDx * sinRad + rawDy * cosRad
+
+                            viewModel.transformSelectionByGesture(panInSheetX, panInSheetY, zoom, rotation)
                         } else {
                             viewModel.updateTransform(
                                 viewModel.scale * zoom,
@@ -77,13 +122,21 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                     viewModel.isSelectionActive,
                     viewModel.selectedTool,
                     viewModel.isPlaying,
-                    viewModel.activeLayerId
+                    viewModel.activeLayerId,
+                    viewModel.currentProject
                 ) {
                     if (viewModel.isPlaying || viewModel.activeLayerId == 0L) return@pointerInput
-                    val sheetWidth = size.width * 0.85f
-                    val sheetHeight = size.height * 0.8f
-                    val sheetLeft = (size.width - sheetWidth) / 2f
-                    val sheetTop = (size.height - sheetHeight) / 2f
+                    val project = viewModel.currentProject
+                    val bounds = calculateSheetBounds(
+                        size.width.toFloat(),
+                        size.height.toFloat(),
+                        project?.canvasWidth ?: 1920,
+                        project?.canvasHeight ?: 1080
+                    )
+                    val sheetWidth = bounds.width
+                    val sheetHeight = bounds.height
+                    val sheetLeft = bounds.left
+                    val sheetTop = bounds.top
                     val center = Offset(size.width / 2f, size.height / 2f)
 
                     var lastStylusTime = 0L
@@ -131,63 +184,64 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
 
                                 val isInsideSheet = sheetX in 0f..sheetWidth && sheetY in 0f..sheetHeight
 
-                                if (isInsideSheet) {
+                                if (viewModel.activeTool == CanvasTool.SELECTION && viewModel.isSelectionActive) {
+                                    // Handle drag & transform active selection box anywhere on screen
+                                    viewModel.setPointerState(true, pos)
+                                    if (pointer.pressed && !pointer.previousPressed) {
+                                        viewModel.startHandleDrag(sheetX, sheetY)
+                                    } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
+                                        val rawDx = (pointer.position.x - pointer.previousPosition.x) / currentScale
+                                        val rawDy = (pointer.position.y - pointer.previousPosition.y) / currentScale
+                                        val deltaX = rawDx * cosRad - rawDy * sinRad
+                                        val deltaY = rawDx * sinRad + rawDy * cosRad
+                                        viewModel.handleSelectionDrag(deltaX, deltaY, sheetX, sheetY)
+                                    }
+                                } else if (isInsideSheet) {
                                     viewModel.setPointerState(true, pos)
 
                                     if (viewModel.activeTool == CanvasTool.SELECTION) {
-                                        if (viewModel.isSelectionActive) {
-                                            // Handle drag & transform selection box
-                                            if (pointer.pressed && !pointer.previousPressed) {
-                                                viewModel.startHandleDrag(sheetX, sheetY)
-                                            } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
-                                                val deltaX = (pointer.position.x - pointer.previousPosition.x) / currentScale
-                                                val deltaY = (pointer.position.y - pointer.previousPosition.y) / currentScale
-                                                viewModel.handleSelectionDrag(deltaX, deltaY)
-                                            }
-                                        } else {
-                                            // Drawing new selection boundary
-                                            when (viewModel.activeSelectionType) {
-                                                SelectionType.RECTANGLE -> {
-                                                    if (pointer.pressed && !pointer.previousPressed) {
-                                                        viewModel.selectionPoints.clear()
+                                        // Drawing new selection boundary inside sheet
+                                        when (viewModel.activeSelectionType) {
+                                            SelectionType.RECTANGLE -> {
+                                                if (pointer.pressed && !pointer.previousPressed) {
+                                                    viewModel.selectionPoints.clear()
+                                                    viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                } else if (pointer.pressed) {
+                                                    if (viewModel.selectionPoints.size < 2) {
                                                         viewModel.selectionPoints.add(Offset(sheetX, sheetY))
-                                                    } else if (pointer.pressed) {
-                                                        if (viewModel.selectionPoints.size < 2) {
-                                                            viewModel.selectionPoints.add(Offset(sheetX, sheetY))
-                                                        } else {
-                                                            viewModel.selectionPoints[1] = Offset(sheetX, sheetY)
-                                                        }
+                                                    } else {
+                                                        viewModel.selectionPoints[1] = Offset(sheetX, sheetY)
                                                     }
                                                 }
-                                                SelectionType.POLYGON -> {
-                                                    if (pointer.pressed && !pointer.previousPressed) {
-                                                        val pt = Offset(sheetX, sheetY)
-                                                        if (viewModel.selectionPoints.size >= 3) {
-                                                            val first = viewModel.selectionPoints.first()
-                                                            if (hypot(pt.x - first.x, pt.y - first.y) < 30f) {
-                                                                // Close polygon
-                                                                var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-                                                                var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
-                                                                for (p in viewModel.selectionPoints) {
-                                                                    minX = min(minX, p.x); minY = min(minY, p.y)
-                                                                    maxX = max(maxX, p.x); maxY = max(maxY, p.y)
-                                                                }
-                                                                viewModel.finalizeSelectionArea(Rect(minX, minY, maxX, maxY))
-                                                            } else {
-                                                                viewModel.selectionPoints.add(pt)
+                                            }
+                                            SelectionType.POLYGON -> {
+                                                if (pointer.pressed && !pointer.previousPressed) {
+                                                    val pt = Offset(sheetX, sheetY)
+                                                    if (viewModel.selectionPoints.size >= 3) {
+                                                        val first = viewModel.selectionPoints.first()
+                                                        if (hypot(pt.x - first.x, pt.y - first.y) < 30f) {
+                                                            // Close polygon
+                                                            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+                                                            var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
+                                                            for (p in viewModel.selectionPoints) {
+                                                                minX = min(minX, p.x); minY = min(minY, p.y)
+                                                                maxX = max(maxX, p.x); maxY = max(maxY, p.y)
                                                             }
+                                                            viewModel.finalizeSelectionArea(Rect(minX, minY, maxX, maxY))
                                                         } else {
                                                             viewModel.selectionPoints.add(pt)
                                                         }
+                                                    } else {
+                                                        viewModel.selectionPoints.add(pt)
                                                     }
                                                 }
-                                                SelectionType.FREEHAND -> {
-                                                    if (pointer.pressed && !pointer.previousPressed) {
-                                                        viewModel.selectionPoints.clear()
-                                                        viewModel.selectionPoints.add(Offset(sheetX, sheetY))
-                                                    } else if (pointer.pressed) {
-                                                        viewModel.selectionPoints.add(Offset(sheetX, sheetY))
-                                                    }
+                                            }
+                                            SelectionType.FREEHAND -> {
+                                                if (pointer.pressed && !pointer.previousPressed) {
+                                                    viewModel.selectionPoints.clear()
+                                                    viewModel.selectionPoints.add(Offset(sheetX, sheetY))
+                                                } else if (pointer.pressed) {
+                                                    viewModel.selectionPoints.add(Offset(sheetX, sheetY))
                                                 }
                                             }
                                         }
@@ -234,10 +288,17 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
             viewModel.drawingManager.setSize(size.width.toInt(), size.height.toInt())
             if (activeNonce < -1) return@Canvas
 
-            val sheetWidth = size.width * 0.85f
-            val sheetHeight = size.height * 0.8f
-            val sheetLeft = (size.width - sheetWidth) / 2f
-            val sheetTop = (size.height - sheetHeight) / 2f
+            val project = viewModel.currentProject
+            val bounds = calculateSheetBounds(
+                size.width,
+                size.height,
+                project?.canvasWidth ?: 1920,
+                project?.canvasHeight ?: 1080
+            )
+            val sheetWidth = bounds.width
+            val sheetHeight = bounds.height
+            val sheetLeft = bounds.left
+            val sheetTop = bounds.top
             val destOffset = IntOffset(sheetLeft.toInt(), sheetTop.toInt())
 
             withTransform({
@@ -294,49 +355,72 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                         }
                     }
 
-                    if (viewModel.isSelectionActive && viewModel.selectionBounds != null && viewModel.selectionBitmap != null) {
-                        val bounds = viewModel.selectionBounds!!
+                    val pivotInSheet = viewModel.getSelectionPivot()
+                    if (viewModel.isSelectionActive && pivotInSheet != null && viewModel.selectionBitmap != null) {
                         val selBmp = viewModel.selectionBitmap!!
 
-                        val transLeft = bounds.left + viewModel.selectionOffsetX + sheetLeft
-                        val transTop = bounds.top + viewModel.selectionOffsetY + sheetTop
-                        val scaledWidth = bounds.width * viewModel.selectionScaleX
-                        val scaledHeight = bounds.height * viewModel.selectionScaleY
+                        val scaledWidth = selBmp.width * viewModel.selectionScaleX
+                        val scaledHeight = selBmp.height * viewModel.selectionScaleY
+                        val centerX = sheetLeft + pivotInSheet.x
+                        val centerY = sheetTop + pivotInSheet.y
+
+                        val halfW = scaledWidth / 2f
+                        val halfH = scaledHeight / 2f
 
                         val flipX = if (viewModel.isSelectionFlippedHorizontally) -1f else 1f
                         val flipY = if (viewModel.isSelectionFlippedVertically) -1f else 1f
 
                         withTransform({
-                            translate(transLeft + scaledWidth / 2f, transTop + scaledHeight / 2f)
-                            scale(viewModel.selectionScaleX * flipX, viewModel.selectionScaleY * flipY, pivot = Offset.Zero)
+                            translate(centerX, centerY)
+                            rotate(viewModel.selectionRotation)
                         }) {
-                            drawImage(
-                                selBmp.asImageBitmap(),
-                                dstOffset = IntOffset(-selBmp.width / 2, -selBmp.height / 2)
+                            withTransform({
+                                scale(viewModel.selectionScaleX * flipX, viewModel.selectionScaleY * flipY, pivot = Offset.Zero)
+                            }) {
+                                drawImage(
+                                    selBmp.asImageBitmap(),
+                                    dstOffset = IntOffset(-selBmp.width / 2, -selBmp.height / 2)
+                                )
+                            }
+
+                            // Dashed bounding box centered at (0, 0)
+                            drawRect(
+                                color = Color(0xFF00CCCB),
+                                topLeft = Offset(-halfW, -halfH),
+                                size = Size(scaledWidth, scaledHeight),
+                                style = dashedStroke
                             )
+
+                            // 4 Corner Handles
+                            drawCircle(Color.White, radius = 11f, center = Offset(-halfW, -halfH))
+                            drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(-halfW, -halfH))
+
+                            drawCircle(Color.White, radius = 11f, center = Offset(halfW, -halfH))
+                            drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(halfW, -halfH))
+
+                            drawCircle(Color.White, radius = 11f, center = Offset(-halfW, halfH))
+                            drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(-halfW, halfH))
+
+                            drawCircle(Color.White, radius = 11f, center = Offset(halfW, halfH))
+                            drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(halfW, halfH))
+
+                            // Rotate Stem Line & Circular Handle Icon at Top-Center
+                            val stemTopY = -halfH - 35f
+                            drawLine(Color(0xFF00CCCB), Offset(0f, -halfH), Offset(0f, stemTopY), strokeWidth = 2f)
+                            drawCircle(Color(0xFF00CCCB), radius = 14f, center = Offset(0f, stemTopY))
+                            drawCircle(Color.White, radius = 11f, center = Offset(0f, stemTopY))
+
+                            // Curved arrow icon drawn inside rotate handle
+                            val arcRect = Rect(Offset(-6f, stemTopY - 6f), Size(12f, 12f))
+                            val rotatePath = androidx.compose.ui.graphics.Path().apply {
+                                addArc(arcRect, 30f, 280f)
+                            }
+                            drawPath(rotatePath, color = Color(0xFF00CCCB), style = Stroke(width = 2.5f))
+
+                            // Green Rotation Pivot Point at Center of Selection
+                            drawCircle(Color(0xFF00FF66), radius = 6f, center = Offset.Zero)
+                            drawCircle(Color.White, radius = 8f, center = Offset.Zero, style = Stroke(width = 1.5f))
                         }
-
-                        // Draw dashed bounding box & 4 transform handles
-                        val boxRect = Rect(transLeft, transTop, transLeft + scaledWidth, transTop + scaledHeight)
-                        drawRect(
-                            color = Color(0xFF00CCCB),
-                            topLeft = Offset(boxRect.left, boxRect.top),
-                            size = Size(boxRect.width, boxRect.height),
-                            style = dashedStroke
-                        )
-
-                        // 4 Corner Handles (50% larger)
-                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.left, boxRect.top))
-                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.left, boxRect.top))
-
-                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.right, boxRect.top))
-                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.right, boxRect.top))
-
-                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.left, boxRect.bottom))
-                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.left, boxRect.bottom))
-
-                        drawCircle(Color.White, radius = 11f, center = Offset(boxRect.right, boxRect.bottom))
-                        drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(boxRect.right, boxRect.bottom))
                     }
                 }
 

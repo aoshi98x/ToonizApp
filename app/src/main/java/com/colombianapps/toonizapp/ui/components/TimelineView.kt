@@ -315,10 +315,10 @@ fun TimelineView(viewModel: StudioViewModel) {
                             Text("Nuevo Dibujo", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        // -Exp button (Only enabled if current cell has drawing)
+                        // -Exp button (Only enabled if current cell has drawing AND exposure > 1)
                         Button(
                             onClick = { viewModel.adjustExposure(-1) },
-                            enabled = activeFrameHasStrokes,
+                            enabled = activeFrameHasStrokes && activeCellSummary.exposure > 1,
                             modifier = Modifier.height(28.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(2.dp),
