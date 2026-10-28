@@ -139,14 +139,14 @@ fun ColorWheelPickerDialog(viewModel: StudioViewModel) {
                             center.x + hueHandleDist * cos(hueRad).toFloat(),
                             center.y + hueHandleDist * sin(hueRad).toFloat()
                         )
-                        drawCircle(color = Color.White, radius = 6f, center = hueHandleCenter)
-                        drawCircle(color = Color.Black, radius = 4f, center = hueHandleCenter)
+                        drawCircle(color = Color.White, radius = 12f, center = hueHandleCenter)
+                        drawCircle(color = Color.Black, radius = 8f, center = hueHandleCenter)
 
                         // 4. Draw SV Square Indicator Handle
                         val svHandleX = left + viewModel.toolSaturation * sqSize
                         val svHandleY = top + (1f - viewModel.toolBrightness) * sqSize
-                        drawCircle(color = Color.White, radius = 6f, center = Offset(svHandleX, svHandleY))
-                        drawCircle(color = Color.Black, radius = 4f, center = Offset(svHandleX, svHandleY))
+                        drawCircle(color = Color.White, radius = 12f, center = Offset(svHandleX, svHandleY))
+                        drawCircle(color = Color.Black, radius = 8f, center = Offset(svHandleX, svHandleY))
                     }
                 }
             }

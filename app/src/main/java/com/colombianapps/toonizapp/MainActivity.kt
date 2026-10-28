@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
                         AppScreen.PROJECT_MANAGER -> {
                             ProjectManagerScreen(
                                 projects = projects,
+                                repository = repository,
                                 onCreateProjectClick = { showCreateDialog = true },
                                 onProjectClick = { proj ->
                                     currentScreen = AppScreen.EDITOR
@@ -68,6 +69,9 @@ class MainActivity : ComponentActivity() {
                                 onDeleteProject = { id ->
                                     repository.deleteProject(id)
                                     projects = repository.getProjects()
+                                },
+                                onProjectsUpdated = {
+                                    projects = repository.getProjects(forceRefresh = true)
                                 }
                             )
 

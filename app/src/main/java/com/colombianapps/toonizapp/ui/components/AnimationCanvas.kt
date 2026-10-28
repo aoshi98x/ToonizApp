@@ -105,7 +105,12 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                             val panInSheetX = rawDx * cosRad - rawDy * sinRad
                             val panInSheetY = rawDx * sinRad + rawDy * cosRad
 
-                            viewModel.transformSelectionByGesture(panInSheetX, panInSheetY, zoom, rotation)
+                            // Si el gesto es predominantemente rotación, cancelamos la traslación accidental (pan)
+                            val isPureRotation = kotlin.math.abs(rotation) > 0.5f && hypot(panInSheetX, panInSheetY) < 5f
+                            val cleanPanX = if (isPureRotation) 0f else panInSheetX
+                            val cleanPanY = if (isPureRotation) 0f else panInSheetY
+
+                            viewModel.transformSelectionByGesture(cleanPanX, cleanPanY, zoom, rotation)
                         } else {
                             viewModel.updateTransform(
                                 viewModel.scale * zoom,
@@ -370,20 +375,28 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                         val flipX = if (viewModel.isSelectionFlippedHorizontally) -1f else 1f
                         val flipY = if (viewModel.isSelectionFlippedVertically) -1f else 1f
 
+                        // Transformación unificada sobre el pivote central (0,0)
+                        withTransform({
+                            // 1. Mueve el sistema de coordenadas al pivote (centro de la selección)
+                            translate(centerX, centerY)
+                            // 2. Rota en Z sobre el origen local (0, 0)
+                            rotate(viewModel.selectionRotation, pivot = Offset.Zero)
+                            // 3. Escala/espeja sobre el origen local (0, 0)
+                            scale(viewModel.selectionScaleX * flipX, viewModel.selectionScaleY * flipY, pivot = Offset.Zero)
+                        }) {
+                            // Dibujar bitmap centrado en (0, 0)
+                            drawImage(
+                                selBmp.asImageBitmap(),
+                                dstOffset = IntOffset(-selBmp.width / 2, -selBmp.height / 2)
+                            )
+                        }
+
+                        // Dibujar marco y manejadores con la misma matriz
                         withTransform({
                             translate(centerX, centerY)
-                            rotate(viewModel.selectionRotation)
+                            rotate(viewModel.selectionRotation, pivot = Offset.Zero)
                         }) {
-                            withTransform({
-                                scale(viewModel.selectionScaleX * flipX, viewModel.selectionScaleY * flipY, pivot = Offset.Zero)
-                            }) {
-                                drawImage(
-                                    selBmp.asImageBitmap(),
-                                    dstOffset = IntOffset(-selBmp.width / 2, -selBmp.height / 2)
-                                )
-                            }
-
-                            // Dashed bounding box centered at (0, 0)
+                            // Caja punteada de selección centrada en (0, 0)
                             drawRect(
                                 color = Color(0xFF00CCCB),
                                 topLeft = Offset(-halfW, -halfH),
@@ -391,7 +404,7 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                                 style = dashedStroke
                             )
 
-                            // 4 Corner Handles
+                            // Esquinas (Manejadores de escala)
                             drawCircle(Color.White, radius = 11f, center = Offset(-halfW, -halfH))
                             drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(-halfW, -halfH))
 
@@ -404,20 +417,19 @@ fun AnimationCanvas(viewModel: StudioViewModel) {
                             drawCircle(Color.White, radius = 11f, center = Offset(halfW, halfH))
                             drawCircle(Color(0xFF00CCCB), radius = 8f, center = Offset(halfW, halfH))
 
-                            // Rotate Stem Line & Circular Handle Icon at Top-Center
+                            // Tallo y manejador circular de rotación
                             val stemTopY = -halfH - 35f
                             drawLine(Color(0xFF00CCCB), Offset(0f, -halfH), Offset(0f, stemTopY), strokeWidth = 2f)
                             drawCircle(Color(0xFF00CCCB), radius = 14f, center = Offset(0f, stemTopY))
                             drawCircle(Color.White, radius = 11f, center = Offset(0f, stemTopY))
 
-                            // Curved arrow icon drawn inside rotate handle
                             val arcRect = Rect(Offset(-6f, stemTopY - 6f), Size(12f, 12f))
                             val rotatePath = androidx.compose.ui.graphics.Path().apply {
                                 addArc(arcRect, 30f, 280f)
                             }
                             drawPath(rotatePath, color = Color(0xFF00CCCB), style = Stroke(width = 2.5f))
 
-                            // Green Rotation Pivot Point at Center of Selection
+                            // Punto verde central (Pivote Z)
                             drawCircle(Color(0xFF00FF66), radius = 6f, center = Offset.Zero)
                             drawCircle(Color.White, radius = 8f, center = Offset.Zero, style = Stroke(width = 1.5f))
                         }

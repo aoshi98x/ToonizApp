@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.colombianapps.toonizapp.R
 import com.colombianapps.toonizapp.data.model.AnimationProject
+import com.colombianapps.toonizapp.data.repository.ProjectRepository
+import com.colombianapps.toonizapp.ui.components.rememberSafFileHandler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,11 +42,19 @@ private val TextMuted = Color(0xFF8FA8B0)
 @Composable
 fun ProjectManagerScreen(
     projects: List<AnimationProject>,
+    repository: ProjectRepository,
     onCreateProjectClick: () -> Unit,
     onProjectClick: (AnimationProject) -> Unit,
-    onDeleteProject: (String) -> Unit
+    onDeleteProject: (String) -> Unit,
+    onProjectsUpdated: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+
+    val safHandler = rememberSafFileHandler(
+        repository = repository,
+        onImportSuccess = { onProjectsUpdated() },
+        onExportSuccess = { /* Export complete */ }
+    )
 
     val filteredProjects = remember(projects, searchQuery) {
         if (searchQuery.isBlank()) projects
@@ -60,7 +70,8 @@ fun ProjectManagerScreen(
             TopStudioBar(
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                onCreateNew = onCreateProjectClick
+                onCreateNew = onCreateProjectClick,
+                onImportClick = { safHandler.launchImportPicker() }
             )
 
             HorizontalDivider(color = BorderCyan, thickness = 1.dp)
@@ -105,8 +116,10 @@ fun ProjectManagerScreen(
                         items(filteredProjects) { project ->
                             ProjectCardItem(
                                 project = project,
+                                isProcessing = safHandler.isProcessing,
                                 onOpen = { onProjectClick(project) },
-                                onDelete = { onDeleteProject(project.id) }
+                                onDelete = { onDeleteProject(project.id) },
+                                onExport = { safHandler.launchExportPicker(project) }
                             )
                         }
                     }
@@ -128,7 +141,8 @@ fun ProjectManagerScreen(
 private fun TopStudioBar(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
-    onCreateNew: () -> Unit
+    onCreateNew: () -> Unit,
+    onImportClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -173,7 +187,7 @@ private fun TopStudioBar(
             }
         }
 
-        // Search Bar & Create Button
+        // Search Bar & Create / Import Buttons
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -184,7 +198,7 @@ private fun TopStudioBar(
                 placeholder = { Text("Buscar proyecto...", fontSize = 12.sp, color = TextMuted) },
                 singleLine = true,
                 modifier = Modifier
-                    .width(240.dp)
+                    .width(220.dp)
                     .height(38.dp),
                 textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = Color.White),
                 shape = RoundedCornerShape(4.dp),
@@ -208,6 +222,18 @@ private fun TopStudioBar(
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("Nuevo Proyecto", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+
+            Button(
+                onClick = onImportClick,
+                modifier = Modifier.height(38.dp),
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PanelBg, contentColor = ActiveCyan),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ActiveCyan)
+            ) {
+                Icon(Icons.Default.FileDownload, contentDescription = "Importar Proyecto", modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Importar", fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }
@@ -274,8 +300,10 @@ private fun QuickPresetsBar(
 @Composable
 private fun ProjectCardItem(
     project: AnimationProject,
+    isProcessing: Boolean,
     onOpen: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onExport: () -> Unit
 ) {
     val dateStr = remember(project.lastModified) {
         val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
@@ -292,7 +320,7 @@ private fun ProjectCardItem(
         border = androidx.compose.foundation.BorderStroke(1.dp, BorderCyan)
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Header Row: Title & Delete Button
+            // Header Row: Title & Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -303,19 +331,38 @@ private fun ProjectCardItem(
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = Color.White,
-                    maxLines = 1
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
                 )
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(24.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Eliminar Proyecto",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                        modifier = Modifier.size(16.dp)
-                    )
+                    IconButton(
+                        onClick = onExport,
+                        modifier = Modifier.size(28.dp),
+                        enabled = !isProcessing
+                    ) {
+                        Icon(
+                            Icons.Default.FileUpload,
+                            contentDescription = "Exportar Proyecto (.tooniz)",
+                            tint = ActiveCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Eliminar Proyecto",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 

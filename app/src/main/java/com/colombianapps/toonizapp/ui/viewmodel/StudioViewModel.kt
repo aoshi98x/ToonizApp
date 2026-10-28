@@ -155,8 +155,6 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     var isColorPickerOpen by mutableStateOf(false)
 
-    var isAdjustingThickness by mutableStateOf(false)
-
     var scale by mutableStateOf(1f)
         private set
 
@@ -387,8 +385,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             selectionScaleY = (selectionScaleY * zoom).coerceAtLeast(0.05f)
         }
         // Como el pivote es el centro, mover = sumar al offset (el centro rota sobre sí mismo)
-        selectionOffsetX += panX
-        selectionOffsetY += panY
+        //selectionOffsetX += panX
+        //selectionOffsetY += panY
         drawNonce++
     }
 
@@ -465,7 +463,11 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
         when (activeHandle) {
             SelectionHandle.ROTATE -> {
-                val currentTouchAngle = Math.toDegrees(kotlin.math.atan2((sheetY - centerY).toDouble(), (sheetX - centerX).toDouble())).toFloat() + 90f
+                val currentTouchAngle = Math.toDegrees(
+                    kotlin.math.atan2((sheetY - centerY).toDouble(), (sheetX - centerX).toDouble())
+                ).toFloat() + 90f
+
+                // ÚNICAMENTE actualiza el ángulo. Los offsets X/Y se mantienen intactos.
                 selectionRotation = (currentTouchAngle + initialRotationOffset + 360f) % 360f
             }
             SelectionHandle.MOVE -> {
@@ -547,7 +549,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Aplica la transformación final (escala, rotación y traslación) sobre el mapa de bits del dibujo activo.
-     * La matriz gráfica pivota exactamente en el centro (bmp.width/2, bmp.height/2) alineado al pivote verde.
+     * La matriz pivota exactamente en el centro real de la selección (getSelectionPivot()) sin desplazamientos orbitales.
      */
     fun applySelectionTransform() {
         val bounds = selectionBounds ?: return
@@ -558,24 +560,27 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         val targetBmp = drawingManager.getBitmap(activeLayerId, currentFrame)
         val canvas = android.graphics.Canvas(targetBmp)
 
+        // Obtenemos el pivote global fijos sobre el lienzo
+        val pivot = getSelectionPivot() ?: return
+
         val matrix = android.graphics.Matrix().apply {
             val scaleXVal = if (isSelectionFlippedHorizontally) -selectionScaleX else selectionScaleX
             val scaleYVal = if (isSelectionFlippedVertically) -selectionScaleY else selectionScaleY
-            val bmpCenterX = bmp.width / 2f
-            val bmpCenterY = bmp.height / 2f
 
-            // Mismo pivote que usa la UI (centro real del bitmap + offset)
-            val targetCenterX = bounds.left + bmp.width / 2f + selectionOffsetX
-            val targetCenterY = bounds.top + bmp.height / 2f + selectionOffsetY
+            val localCenterX = bmp.width / 2f
+            val localCenterY = bmp.height / 2f
 
-            // 1. Alinear el centro del bitmap extraído en (0,0)
-            postTranslate(-bmpCenterX, -bmpCenterY)
-            // 2. Escalar respecto a (0,0)
+            // 1. Alinear el centro del bitmap en el origen (0,0)
+            postTranslate(-localCenterX, -localCenterY)
+
+            // 2. Escalar respecto al origen (0,0)
             postScale(scaleXVal, scaleYVal)
-            // 3. Rotar respecto a (0,0)
+
+            // 3. Rotar respecto al origen (0,0)
             postRotate(selectionRotation)
-            // 4. Trasladar el centro (0,0) a las coordenadas finales del pivote verde (targetCenterX, targetCenterY)
-            postTranslate(targetCenterX, targetCenterY)
+
+            // 4. Trasladar el origen (0,0) al pivote final en el lienzo (bounds + offset)
+            postTranslate(pivot.x, pivot.y)
         }
 
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
@@ -1334,13 +1339,31 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
     fun adjustExposure(delta: Int) {
         if (activeLayerId == 0L || delta == 0) return
-        val strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), currentFrame.toUInt())
+
+        val summary = getCellSummary(activeLayerId.toULong(), currentFrame.toUInt())
+        if (!summary.hasStrokes) {
+            if (delta > 0) {
+                createNewDrawingAtCurrentFrame()
+            } else {
+                return
+            }
+        }
+
+        var strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), currentFrame.toUInt())
+        if (strokes.isEmpty() && drawingManager.hasBitmap(activeLayerId, currentFrame)) {
+            engine.setActiveLayer(activeLayerId.toULong())
+            engine.setCurrentFrame(currentFrame.toUInt())
+            engine.startStroke(0f, 0f, 0.5f, ToolType.PENCIL, 0u, 1f)
+            engine.endStroke()
+            strokes = engine.getStrokesForLayerAndFrame(activeLayerId.toULong(), currentFrame.toUInt())
+        }
+
         if (strokes.isEmpty()) return
 
         val actualStartFrame = strokes.first().frameIndex.toInt()
         val currentExp = strokes.first().exposure.toInt()
 
-        // If trying to decrease exposure and exposure is already 1, do nothing!
+        // If trying to decrease exposure and exposure is already <= 1, do nothing!
         if (delta < 0 && currentExp <= 1) return
 
         drawingManager.shiftExposureBitmaps(activeLayerId, actualStartFrame, delta, currentExp)
